@@ -7,47 +7,6 @@ using System.Text.Json;
 namespace WUIntegrate
 {
 
-    // What the fuck is the update folder??
-
-    // package?? i dont know yet, but within them:
-
-    // C is the core folder. dunno wtf it is.
-    // E is Eula.
-    // L is Localized Properties speciifcally the title + KB, and the Description.
-    // X is Cabinet schema related shit.
-
-
-    // OsVersion Meanings:
-    // 2008: Windows Server 2008
-    // 2008R2: Windows Server 2008 R2
-    // 2012: Windows Server 2012
-    // 2012R2: Windows Server 2012 R2
-    // 2016: Windows Server 2016
-    // 2019: Windows Server 2019
-    // 2022: Windows Server 2022
-    // 2025: Windows Server 2025
-    // 7601: Windows 7
-    // 9600: Windows 8.0
-    // 9601: Windows 8.1
-    // 1507: Windows 10 1507
-    // 1511: Windows 10 1511
-    // 1607: Windows 10 1607
-    // 1703: Windows 10 1703
-    // 1709: Windows 10 1709
-    // 1803: Windows 10 1803
-    // 1809: Windows 10 1809
-    // 1903: Windows 10 1903
-    // 1909: Windows 10 1909
-    // 2004: Windows 10 20H1
-    // 20H2: Windows 10 20H2
-    // 21H1: Windows 10 21H1
-    // 10-21H2: Windows 10 21H2
-    // 10-22H2: Windows 10 22H2
-    // 11-21H2: Windows 11 21H2
-    // 11-22H2: Windows 11 22H2
-    // 23H2: Windows 11 23H2
-    // 24H2: Windows 11 24H2
-
     struct Update
     {
         public DateTime? CreationDate { get; set; }
@@ -104,7 +63,7 @@ namespace WUIntegrate
         }
     }
 
-    class UpdateSystem
+    partial class UpdateSystem
     {
         internal enum WindowsVersion
         {
@@ -162,7 +121,17 @@ namespace WUIntegrate
         private readonly WindowsVersion isoVersion;
         private readonly Architecture isoArchitecture;
 
+        private static readonly JsonSerializerOptions jsonSerializerOptions = new() { WriteIndented = false };
+
         public bool ReadyToIntegrate;
+
+
+        [GeneratedRegex(@"(http[s]?\:\/\/(?:dl\.delivery\.mp\.microsoft\.com|(?:catalog\.s\.)?download\.windowsupdate\.com)\/[^\'""]*)")]
+        private static partial Regex DownloadUrlRegex();
+
+        [GeneratedRegex(@"KB\d{7}")]
+        private static partial Regex KbNumberRegex();
+
         public UpdateSystem(WindowsVersion windowsVersion, Architecture architecture)
         {
             isoVersion = windowsVersion;
@@ -282,7 +251,7 @@ namespace WUIntegrate
             };
 
             // Convert to JSON format
-            string jsonPost = JsonSerializer.Serialize(updateData, new JsonSerializerOptions { WriteIndented = false });
+            string jsonPost = JsonSerializer.Serialize(updateData, jsonSerializerOptions);
             var requestContent = $"updateIDs=[{jsonPost}]";
 
             // Create HTTP client
@@ -307,9 +276,7 @@ namespace WUIntegrate
             responseText = responseText.Replace("www.download.windowsupdate", "download.windowsupdate");
 
             // Use regex to extract the download links (same pattern as PowerShell)
-            var linkRegex = new Regex(
-                @"(http[s]?\:\/\/(?:dl\.delivery\.mp\.microsoft\.com|(?:catalog\.s\.)?download\.windowsupdate\.com)\/[^\'""]*)");
-            var matches = linkRegex.Matches(responseText);
+            var matches = DownloadUrlRegex().Matches(responseText);
 
             // Create the result list
             var downloadLinks = new List<DownloadLink>();
@@ -468,7 +435,6 @@ namespace WUIntegrate
 
             if (localizationPath == null) Helper.Error("Localization path was not detected.");
             string[] files = Directory.GetFiles(localizationPath!);
-            Regex kbRegex = new(@"KB\d{7}", RegexOptions.Compiled);
 
             // Pre-compile the regex patterns for performance
             Dictionary<WindowsVersion, Regex> compiledOsVersionPatterns = [];
@@ -503,7 +469,7 @@ namespace WUIntegrate
                 if (!xmlDoc.Root.Elements("Description").Any()) continue;
 
                 // Get the KB number
-                Match match = kbRegex.Match(title);
+                Match match = KbNumberRegex().Match(title);
                 if (!match.Success) continue;
                 string kbNumber = match.Value;
 
@@ -689,4 +655,6 @@ namespace WUIntegrate
             }
         }
     }
+
 }
+

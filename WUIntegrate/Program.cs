@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Net;
 using System.Reflection;
-using Microsoft.Dism;
 using System.Security.Principal;
+using Microsoft.Dism;
 
 namespace WUIntegrate;
 
@@ -30,7 +30,8 @@ public class Helper
 
     public static void DeleteFolder(string folderName)
     {
-        if (!Directory.Exists(folderName)) return;
+        if (!Directory.Exists(folderName))
+            return;
         Directory.Delete(folderName, recursive: true);
     }
 
@@ -38,14 +39,20 @@ public class Helper
     {
         Console.WriteLine($"Extracting resource {ResourceName} to {DestinationPath}");
 
-
-        using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName);
+        using var resource = Assembly
+            .GetExecutingAssembly()
+            .GetManifestResourceStream(ResourceName);
         using var file = new FileStream(DestinationPath, FileMode.Create, FileAccess.Write);
-        if (resource == null) return;
+        if (resource == null)
+            return;
         resource.CopyTo(file);
     }
 
-    public static void ExtractFile(string SourcePath, string DestinationPath, string? SpecificArguments = null)
+    public static void ExtractFile(
+        string SourcePath,
+        string DestinationPath,
+        string? SpecificArguments = null
+    )
     {
         Console.WriteLine($"Extracting file {SourcePath} to {DestinationPath}");
 
@@ -54,9 +61,18 @@ public class Helper
 
         if (!Path.Exists(WUIntegrateRoot.SevenZipExe))
         {
-            ExtractResource("WUIntegrate.Utils.7za.dll", Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.dll"));
-            ExtractResource("WUIntegrate.Utils.7za.exe", Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.exe"));
-            ExtractResource("WUIntegrate.Utils.7zxa.dll", Path.Combine(WUIntegrateRoot.UtilsPath!, "7zxa.dll"));
+            ExtractResource(
+                "WUIntegrate.Utils.7za.dll",
+                Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.dll")
+            );
+            ExtractResource(
+                "WUIntegrate.Utils.7za.exe",
+                Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.exe")
+            );
+            ExtractResource(
+                "WUIntegrate.Utils.7zxa.dll",
+                Path.Combine(WUIntegrateRoot.UtilsPath!, "7zxa.dll")
+            );
         }
 
         ProcessStartInfo startInfo = new()
@@ -69,9 +85,11 @@ public class Helper
 
         try
         {
-            using (Process process = Process.Start(startInfo))
+            using (Process? process = Process.Start(startInfo))
             {
-                process.WaitForExit();
+                if (process == null)
+                    Helper.ExceptionFactory<Exception>("Failed to start 7zr.exe process.");
+                process!.WaitForExit();
             }
 
             Console.WriteLine($"Extraction has completed for {SourcePath} to {DestinationPath}");
@@ -84,20 +102,28 @@ public class Helper
 
     public static void DownloadFileUri(string Uri, string DestinationPath)
     {
-        if (Uri == null) ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
-        if (Path.Exists(DestinationPath)) return;
+        if (Uri == null)
+            ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
+        if (Path.Exists(DestinationPath))
+            return;
 
         Task.Run(async () =>
-        {
-            using HttpClient client = new();
-            using HttpResponseMessage response = await client.GetAsync(Uri);
+            {
+                using HttpClient client = new();
+                using HttpResponseMessage response = await client.GetAsync(Uri);
 
-            response.EnsureSuccessStatusCode();
+                response.EnsureSuccessStatusCode();
 
-            using Stream contentStream = await response.Content.ReadAsStreamAsync(),
-                stream = new FileStream(DestinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            await contentStream.CopyToAsync(stream);
-        }).Wait();
+                using Stream contentStream = await response.Content.ReadAsStreamAsync(),
+                    stream = new FileStream(
+                        DestinationPath,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None
+                    );
+                await contentStream.CopyToAsync(stream);
+            })
+            .Wait();
     }
 
     public static bool IsCurrentUserAdmin()
@@ -114,43 +140,35 @@ public class Helper
         throw new Exception(errorMessage);
     }
 
-    public static void ExceptionFactory<T>(string errorMessage) where T : Exception
+    public static void ExceptionFactory<T>(string errorMessage)
+        where T : Exception
     {
         UpdateSystem.Cleanup();
         WUIntegrateRoot.Cleanup();
-        throw (T)Activator.CreateInstance(typeof(T), errorMessage);
+        var ex =
+            Activator.CreateInstance(typeof(T), errorMessage) as T
+            ?? throw new InvalidOperationException("Failed to create exception instance.");
+        throw ex;
     }
 }
 
 public class WUIntegrateRoot
 {
-    // WUIntegrate Process
-
-    // 1. ISO path or WIM path is specified as the first argument to the software.
-    // 2. If no path do not run.
-    // 3. If ISO, extract to Temporary directory. Make sure there is enough space. If WIM, mount WIM to temporary directory location.
-    // 4. Identify OS.
-    // 5. Download all the latest update files for the OS.
-    // 6. Integrate the OS updates.
-    // 7. Commit WIM changes.
-    // 8. Ask if user wants to make a bootable ISO.
-    // 9. If yes, produce ISO and put it in the same folder that the input ISO was given.
-
     enum MediumType
     {
         WimFile,
+        EsdFile,
         IsoFile,
-        Unknown
+        Unknown,
     }
 
-    const string STARTUP_NOTICE = "WUIntegrate - Made by sunryze";
-    const string USAGE_STATEMENT = 
-        """
+    const string StartupNotice = "WUIntegrate - Made by sunryze";
+    const string UsageNotice = """
         Usage:
         WUIntegrate.exe [MediumPath]
         """;
 
-    const string ADMIN_NOTICE = """
+    const string AdminNotice = """
         WUIntegrate requires administrator permissions in order to use DISM commands. Please run as administrator.
 
         WUIntegrate will never perform any operations that are against your fundamental privacy rights. WUIntegrate source code is available at the GitHub page.
@@ -174,22 +192,21 @@ public class WUIntegrateRoot
     internal static UpdateSystem.Architecture SystemArchitecture; // Medium architecture
 
     internal static string? ArgumentPath = null;
+
     public static void Main(string[] args)
     {
         if (!Helper.IsCurrentUserAdmin())
-        {
-            Console.WriteLine(ADMIN_NOTICE);
-        }
+            Console.WriteLine(AdminNotice);
 
         ArgumentPath = args.FirstOrDefault();
 
-        Console.WriteLine(STARTUP_NOTICE);
-        ArgumentPath = @"C:\Users\sunryze\Downloads\en-us_windows_server_2022_updated_jan_2024_x64_dvd_2b7a0c9f\sources\install.wim";
+        Console.WriteLine(StartupNotice);
+        ArgumentPath = @"C:\Users\Ryze\Documents\en-us_windows_10_22h2_x64\sources\install.esd";
 
         // Test Arguments
         if (ArgumentPath == null)
         {
-            Console.WriteLine(USAGE_STATEMENT);
+            Console.WriteLine(UsageNotice);
             return;
         }
 
@@ -225,6 +242,9 @@ public class WUIntegrateRoot
                 break;
             case MediumType.WimFile:
                 break;
+            case MediumType.EsdFile:
+                Helper.ExceptionFactory<ArgumentException>("ESD files are not supported.");
+                break;
             case MediumType.Unknown:
                 Helper.Error("Unknown medium type.");
                 break;
@@ -235,14 +255,16 @@ public class WUIntegrateRoot
         SetWinVersionAndArchitecture(MediumPath!);
 
         // Confirm information
-        Console.WriteLine($"""
+        Console.WriteLine(
+            $"""
             WIM Index: {WimIndex}
             Windows Image Version: {WindowsVersion}
             Architecture: {SystemArchitecture}
 
             WIM Path: {MediumPath}
             DISM Mount Path: {DismMountPath}
-            """);
+            """
+        );
 
         // Mount WIM
         Console.WriteLine("Mounting WIM...");
@@ -302,11 +324,15 @@ public class WUIntegrateRoot
             Directory.Delete(TemporaryPath, recursive: true);
         }
     }
-    
+
     private static void TestPath(string path)
     {
-        if (Directory.Exists(path)) Helper.ExceptionFactory<ArgumentException>("Path specified is a directory. Directories are not supported.");
-        if (!File.Exists(path)) Helper.ExceptionFactory<FileNotFoundException>("Path specified does not exist.");
+        if (Directory.Exists(path))
+            Helper.ExceptionFactory<ArgumentException>(
+                "Path specified is a directory. Directories are not supported."
+            );
+        if (!File.Exists(path))
+            Helper.ExceptionFactory<FileNotFoundException>("Path specified does not exist.");
     }
 
     private static void TestSpace(string path)
@@ -320,7 +346,9 @@ public class WUIntegrateRoot
         var FileSize = FileInfo.Length;
 
         if (DriveFreeSpace < FileSize)
-            Helper.ExceptionFactory<IOException>("Not enough space on the drive to extract the file.");
+            Helper.ExceptionFactory<IOException>(
+                "Not enough space on the drive to extract the file."
+            );
     }
 
     private static void IdentifyMedium(string path)
@@ -329,6 +357,7 @@ public class WUIntegrateRoot
         {
             ".WIM" => MediumType.WimFile,
             ".ISO" => MediumType.IsoFile,
+            ".ESD" => MediumType.EsdFile,
             _ => MediumType.Unknown,
         };
         Console.WriteLine($"Medium identified as {Medium}");
@@ -338,7 +367,7 @@ public class WUIntegrateRoot
             return;
         }
 
-        if (Medium == MediumType.WimFile)
+        if (Medium == MediumType.WimFile || Medium == MediumType.EsdFile)
         {
             MediumPath = path;
 
@@ -346,12 +375,14 @@ public class WUIntegrateRoot
             var di = new DirectoryInfo(parentPath!);
             if (di.Attributes.HasFlag(FileAttributes.ReadOnly))
             {
-                Helper.ExceptionFactory<UnauthorizedAccessException>("Directory of the WIM is read only. This is not supported. Please move the WIM file to a writable directory or drive.");
+                Helper.ExceptionFactory<UnauthorizedAccessException>(
+                    "Directory of the WIM/ESD is read only. This is not supported. Please move the WIM file to a writable directory or drive."
+                );
             }
             return;
         }
 
-        Helper.ExceptionFactory<ArgumentException>("The given path was not a WIM or ISO file.");
+        Helper.ExceptionFactory<ArgumentException>("The given path was not a WIM/ESD or ISO file.");
     }
 
     private static void ExtractISO()
@@ -365,14 +396,16 @@ public class WUIntegrateRoot
                 FileName = SevenZipExe,
                 Arguments = arguments,
                 CreateNoWindow = true,
-                UseShellExecute = false
+                UseShellExecute = false,
             };
 
             try
             {
-                using (Process process = Process.Start(startInfo))
+                using (Process? process = Process.Start(startInfo))
                 {
-                    process.WaitForExit();
+                    if (process == null)
+                        Helper.ExceptionFactory<Exception>("Failed to start 7zr.exe process.");
+                    process!.WaitForExit();
                 }
 
                 Console.WriteLine("ISO extraction has completed.");
@@ -383,6 +416,7 @@ public class WUIntegrateRoot
             }
         }
     }
+
     //
 
     // DISM OPERATIONS
@@ -394,23 +428,26 @@ public class WUIntegrateRoot
 
             foreach (var index in ImageInfo)
             {
-                Console.WriteLine($"""
-                [{index.ImageIndex}]
-                    {index.ImageName}
-                    {index.Architecture}
-                """);
+                Console.WriteLine(
+                    $"""
+                    [{index.ImageIndex}]
+                        {index.ImageName}
+                        {index.Architecture}
+                    """
+                );
             }
 
             do
             {
-                WimIndex = Helper.PromptForInt("Please select the number for the WIM index you would like to integrate to: ");
+                WimIndex = Helper.PromptForInt(
+                    "Please select the number for the WIM index you would like to integrate to: "
+                );
             } while (!ImageInfo.Any(x => x.ImageIndex == WimIndex));
 
             var SelectedImage = ImageInfo.First(x => x.ImageIndex == WimIndex);
 
             SetWindowsVersion(SelectedImage.ProductVersion.Build, SelectedImage.ProductType);
             SetArchitecture(SelectedImage.Architecture);
-
         }
         catch (Exception ex)
         {
@@ -515,7 +552,7 @@ public class WUIntegrateRoot
                 _ => UpdateSystem.WindowsVersion.Unknown,
             };
         }
-    
+
         if (WindowsVersion == UpdateSystem.WindowsVersion.Unknown)
         {
             Helper.ExceptionFactory<ArgumentException>("Windows version is unsupported.");
@@ -555,31 +592,31 @@ public class WUIntegrateRoot
             Helper.ExceptionFactory<DismException>($"Failed to commit WIM: {ex}");
         }
     }
+
     //
 
     // CLEANUP OPERATIONS
     internal static void Cleanup()
     {
-        // Shutdown DismAPI
-        DismApi.CleanupMountpoints();
-        DismApi.Shutdown();
+        try
+        {
+            DismApi.CleanupMountpoints();
+            DismApi.Shutdown();
+        }
+        catch
+        {
+            // Ignore
+        }
 
         // Delete Temp Path
         DeleteTempPath();
     }
+
     //
 
 
     // THINGS TO DO LATER
-    private static void CreateBootableImage()
-    {
+    private static void CreateBootableImage() { }
 
-
-    }
-
-    private static void DisplayRunningOSInformation()
-    {
-
-
-    }
+    private static void DisplayRunningOSInformation() { }
 }
