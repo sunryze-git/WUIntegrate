@@ -1,244 +1,102 @@
-﻿using System.Diagnostics;
-using System.Net;
-using System.Reflection;
-using System.Security.Principal;
+﻿using DiscUtils.Udf;
+using Microsoft.CST.RecursiveExtractor;
 using Microsoft.Dism;
 
 namespace WUIntegrate;
 
-public class Helper
-{
-    public static int PromptForInt(string promptMessage)
-    {
-        // Optimized to minimize overhead in printing and reading input
-        Console.Write(promptMessage + ": ");
-        string? input = Console.ReadLine();
-        return int.Parse(input ?? "0");
-    }
-
-    public static bool PromptYesNo(string PromptMessage)
-    {
-        Console.Write(PromptMessage + " (Y/N) : ");
-        char response = Char.ToUpper(Console.ReadKey().KeyChar);
-        return response == 'Y';
-    }
-
-    public static void DeleteFile(string fileName)
-    {
-        File.Delete(fileName);
-    }
-
-    public static void DeleteFolder(string folderName)
-    {
-        if (!Directory.Exists(folderName))
-            return;
-        Directory.Delete(folderName, recursive: true);
-    }
-
-    public static void ExtractResource(string ResourceName, string DestinationPath)
-    {
-        Console.WriteLine($"Extracting resource {ResourceName} to {DestinationPath}");
-
-        using var resource = Assembly
-            .GetExecutingAssembly()
-            .GetManifestResourceStream(ResourceName);
-        using var file = new FileStream(DestinationPath, FileMode.Create, FileAccess.Write);
-        if (resource == null)
-            return;
-        resource.CopyTo(file);
-    }
-
-    public static void ExtractFile(
-        string SourcePath,
-        string DestinationPath,
-        string? SpecificArguments = null
-    )
-    {
-        Console.WriteLine($"Extracting file {SourcePath} to {DestinationPath}");
-
-        // Use the 7zr.exe to extract the file
-        string arguments = $"x \"{SourcePath}\" -o\"{DestinationPath}\" {SpecificArguments} -y";
-
-        if (!Path.Exists(WUIntegrateRoot.SevenZipExe))
-        {
-            ExtractResource(
-                "WUIntegrate.Utils.7za.dll",
-                Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.dll")
-            );
-            ExtractResource(
-                "WUIntegrate.Utils.7za.exe",
-                Path.Combine(WUIntegrateRoot.UtilsPath!, "7za.exe")
-            );
-            ExtractResource(
-                "WUIntegrate.Utils.7zxa.dll",
-                Path.Combine(WUIntegrateRoot.UtilsPath!, "7zxa.dll")
-            );
-        }
-
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = WUIntegrateRoot.SevenZipExe,
-            Arguments = arguments,
-            CreateNoWindow = false,
-            UseShellExecute = false,
-        };
-
-        try
-        {
-            using (Process? process = Process.Start(startInfo))
-            {
-                if (process == null)
-                    Helper.ExceptionFactory<Exception>("Failed to start 7zr.exe process.");
-                process!.WaitForExit();
-            }
-
-            Console.WriteLine($"Extraction has completed for {SourcePath} to {DestinationPath}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Extraction failed: {ex}");
-        }
-    }
-
-    public static void DownloadFileUri(string Uri, string DestinationPath)
-    {
-        if (Uri == null)
-            ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
-        if (Path.Exists(DestinationPath))
-            return;
-
-        Task.Run(async () =>
-            {
-                using HttpClient client = new();
-                using HttpResponseMessage response = await client.GetAsync(Uri);
-
-                response.EnsureSuccessStatusCode();
-
-                using Stream contentStream = await response.Content.ReadAsStreamAsync(),
-                    stream = new FileStream(
-                        DestinationPath,
-                        FileMode.Create,
-                        FileAccess.Write,
-                        FileShare.None
-                    );
-                await contentStream.CopyToAsync(stream);
-            })
-            .Wait();
-    }
-
-    public static bool IsCurrentUserAdmin()
-    {
-        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-        WindowsPrincipal principal = new(identity);
-        return principal.IsInRole(WindowsBuiltInRole.Administrator);
-    }
-
-    public static void Error(string errorMessage)
-    {
-        UpdateSystem.Cleanup();
-        WUIntegrateRoot.Cleanup();
-        throw new Exception(errorMessage);
-    }
-
-    public static void ExceptionFactory<T>(string errorMessage)
-        where T : Exception
-    {
-        UpdateSystem.Cleanup();
-        WUIntegrateRoot.Cleanup();
-        var ex =
-            Activator.CreateInstance(typeof(T), errorMessage) as T
-            ?? throw new InvalidOperationException("Failed to create exception instance.");
-        throw ex;
-    }
-}
-
 public class WUIntegrateRoot
 {
-    enum MediumType
-    {
-        WimFile,
-        EsdFile,
-        IsoFile,
-        Unknown,
-    }
+    // Flags
+    static readonly bool SkipDism = false;
+    static readonly bool SkipUpdate = false;
 
-    const string StartupNotice = "WUIntegrate - Made by sunryze";
-    const string UsageNotice = """
-        Usage:
-        WUIntegrate.exe [MediumPath]
-        """;
-
-    const string AdminNotice = """
-        WUIntegrate requires administrator permissions in order to use DISM commands. Please run as administrator.
-
-        WUIntegrate will never perform any operations that are against your fundamental privacy rights. WUIntegrate source code is available at the GitHub page.
-        """;
-
-    // Runtime settings
-    internal static string? TemporaryPath; // WUIntegrate
-    internal static string? UtilsPath; // WUIntegrate\utils
-    internal static string? SevenZipExe; // WUIntegrate\utils\7za.exe
-    internal static string? offlinescancab; // WUIntegrate\offlinescancab
-    internal static string? MediumPath; // Input WIM file.
-    internal static string? DismMountPath; // WUIntegrate\mount
-    internal static string? MediumExtractPath; // WUIntegrate\extract
-    internal static string? DownloadedUpdates; // WUIntegrate\updates
-
-    internal static int WimIndex; // Selected WIM index
-
-    static MediumType Medium; // Type of medium we are working with
-
-    internal static UpdateSystem.WindowsVersion WindowsVersion; // Medium OS version
-    internal static UpdateSystem.Architecture SystemArchitecture; // Medium architecture
-
-    internal static string? ArgumentPath = null;
+    private static int WimIndex; // Selected WIM index
+    private static MediumType Medium; // Type of medium we are working with
+    private static WindowsVersion WindowsVersion; // Medium OS version
+    private static Architecture SystemArchitecture; // Medium architecture
+    private static string? ArgumentPath = null;
+    private static List<DismImageInfo>? IntegratableImages;
+    private static UpdateSystem? updateSystem;
+    internal static Locations? Directories;
 
     public static void Main(string[] args)
     {
+        Console.Title = "WUIntegrate";
+
         if (!Helper.IsCurrentUserAdmin())
-            Console.WriteLine(AdminNotice);
+            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Magenta);
 
         ArgumentPath = args.FirstOrDefault();
+        ArgumentPath = @"C:\Users\Ryze\Downloads\en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96\sources\install.wim";
 
-        Console.WriteLine(StartupNotice);
-        ArgumentPath = @"C:\Users\Ryze\Documents\en-us_windows_10_22h2_x64\sources\install.esd";
+        ConsoleWriter.WriteLine(Constants.Notices.Startup, ConsoleColor.Yellow);
 
         // Test Arguments
         if (ArgumentPath == null)
         {
-            Console.WriteLine(UsageNotice);
+            ConsoleWriter.WriteLine(Constants.Notices.Usage, ConsoleColor.Magenta);
             return;
         }
 
+        // Phase 1: Initialization
+        Initialization();
+
+        // Phase 2: DISM Choice
+        if (SkipDism)
+        {
+            ConsoleWriter.WriteMarkedLine("DISM is disabled. Continuing is impossible.", "[!]", ConsoleColor.Red, ConsoleColor.Red);
+            CleanupPhase();
+            return;
+        }
+        DismChoicePhase();
+
+        // Phase 3: Update Phase
+        UpdatePhase();
+
+        // Phase 4: Cleanup
+        CleanupPhase();
+
+        return;
+    }
+
+    private static void Initialization()
+    {
         // Test Path
-        TestPath(ArgumentPath);
+        TestPath(ArgumentPath!);
 
         // Test Space
-        TestSpace(ArgumentPath);
+        TestSpace(ArgumentPath!);
 
         // Initializing DISM API
-        Console.WriteLine("Initializing DISM API...");
-        DismApi.Initialize(DismLogLevel.LogErrorsWarningsInfo);
+        if (!SkipDism)
+        {
+            ConsoleWriter.WriteMarkedLine(" Initializing DISM", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            DismApi.Initialize(DismLogLevel.LogErrorsWarningsInfo);
+        }
+        else
+        {
+            ConsoleWriter.WriteMarkedLine(" DISM Disabled!", "[!]", ConsoleColor.Red, ConsoleColor.Red);
+        }
 
         // Create Paths
-        Console.WriteLine("Creating temporary directories...");
+        ConsoleWriter.WriteMarkedLine(" Creating temporary directories", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
         CreatePaths();
 
         // Identify Medium
-        Console.WriteLine("Identifying medium...");
-        IdentifyMedium(ArgumentPath);
+        ConsoleWriter.WriteMarkedLine(" Identifying installation medium type", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        IdentifyMedium(ArgumentPath!);
+        ConsoleWriter.WriteMarkedLine($" Detected medium: {Medium}", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
 
-        // Extract 7z
-        Helper.ExtractResource("WUIntegrate.Utils.7za.dll", Path.Combine(UtilsPath!, "7za.dll"));
-        Helper.ExtractResource("WUIntegrate.Utils.7za.exe", Path.Combine(UtilsPath!, "7za.exe"));
-        Helper.ExtractResource("WUIntegrate.Utils.7zxa.dll", Path.Combine(UtilsPath!, "7zxa.dll"));
 
         // Handle different medium types
         switch (Medium)
         {
             case MediumType.IsoFile:
-                Console.WriteLine("Extracting ISO file...");
-                ExtractISO();
+                ConsoleWriter.WriteMarkedLine(" Extracting ISO file", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                Task.Run(async () =>
+                {
+                    await ExtractISO(ArgumentPath!);
+                }).Wait();
                 break;
             case MediumType.WimFile:
                 break;
@@ -246,82 +104,123 @@ public class WUIntegrateRoot
                 Helper.ExceptionFactory<ArgumentException>("ESD files are not supported.");
                 break;
             case MediumType.Unknown:
-                Helper.Error("Unknown medium type.");
+                Helper.ExceptionFactory<ArgumentException>("Unknown medium type.");
                 break;
         }
+    }
 
-        // Get WIM Index
-        Console.WriteLine("Getting WIM index selection...");
-        SetWinVersionAndArchitecture(MediumPath!);
+    private static void DismChoicePhase()
+    {
+        ConsoleWriter.WriteMarkedLine(" Loading WIM contents", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        SetWinVersionAndArchitecture(Directories!.MediumPath!);
+    }
 
-        // Confirm information
-        Console.WriteLine(
-            $"""
-            WIM Index: {WimIndex}
-            Windows Image Version: {WindowsVersion}
-            Architecture: {SystemArchitecture}
-
-            WIM Path: {MediumPath}
-            DISM Mount Path: {DismMountPath}
-            """
-        );
-
-        // Mount WIM
-        Console.WriteLine("Mounting WIM...");
-        MountWIM();
-
+    private static void UpdatePhase()
+    {
         // Start Update System
-        Console.WriteLine("Starting Update System...");
-        UpdateSystem updateSystem = new(WindowsVersion, SystemArchitecture);
-
-        // Integrate updates if specified
-        if (updateSystem.ReadyToIntegrate)
+        if (!SkipUpdate)
         {
-            IntegrateUpdateFiles();
+            ConsoleWriter.WriteMarkedLine(" Initializing update downloader", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            updateSystem = new();
         }
 
-        // Commit WIM
-        Console.WriteLine("Committing WIM...");
-        CommitWIM();
+        do
+        {
+            // Current Image
+            var CurrentImage = IntegratableImages!.First();
 
+            // Set Windows Version and Architecture
+            ConsoleWriter.WriteMarkedLine(" Setting architecture and version settings", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            SetWindowsVersion(CurrentImage.ProductVersion.Build, CurrentImage.ProductType);
+            SetArchitecture(CurrentImage.Architecture);
+
+            // Confirm information
+            ConsoleWriter.WriteLine(
+                $"""
+            --------------------
+            Current Image:
+                WIM Index: {CurrentImage.ImageIndex}
+                Windows Image Version: {WindowsVersion}
+                Architecture: {SystemArchitecture}
+            --------------------
+            """
+            , ConsoleColor.White);
+
+            // Mount WIM
+            if (!SkipDism)
+            {
+                ConsoleWriter.WriteMarkedLine(" Mounting WIM", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                MountWIM();
+            }
+
+            // Start Update System
+            if (!SkipUpdate)
+            {
+                // Get updates for this version
+                ConsoleWriter.WriteMarkedLine(" Finding latest updates", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                updateSystem!.Start(WindowsVersion, SystemArchitecture);
+
+                // Integrate updates if specified
+                if (updateSystem.ReadyToIntegrate)
+                {
+                    Console.Clear();
+                    ConsoleWriter.WriteMarkedLine(" Integrating Updates. This may take a while.", "[i]", ConsoleColor.Cyan, ConsoleColor.Green)
+                    IntegrateUpdateFiles();
+                }
+            }
+
+            if (!SkipDism)
+            {
+                // Unmount WIM
+                ConsoleWriter.WriteMarkedLine(" Applying WIM changes", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                CommitWIM();
+            }
+
+            // Remove from the list the image we just handled
+            IntegratableImages!.Remove(CurrentImage);
+        } while (IntegratableImages!.Count > 0);
+    }
+
+    private static void CleanupPhase()
+    {
         // Cleanup
-        Console.WriteLine("Cleaning up...");
+        ConsoleWriter.WriteMarkedLine(" Cleaning up", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
         Cleanup();
     }
 
     // PATH OPERATIONS
     private static void CreatePaths()
     {
-        // Make Temporary Path Root
-        var temp = Path.GetTempPath();
-        var tempDirNew = Path.Combine(temp, "WUIntegrate");
-        var tempSevenZipPath = Path.Combine(tempDirNew, "utils");
-        var tempDismMountPath = Path.Combine(tempDirNew, "mount");
-        var tempMediumExtractPath = Path.Combine(tempDirNew, "extract");
-        var tempUpdateDlPath = Path.Combine(tempDirNew, "updates");
 
-        if (!Directory.Exists(tempDirNew))
+        Directories = new Locations(
+            Path.GetTempPath(),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate"),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate", "utils"),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate", "scancab"),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate", "mount"),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate", "extract"),
+            Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
+        );
+
+        foreach (var path in Directories.All)
         {
-            Directory.CreateDirectory(tempDirNew);
-            Directory.CreateDirectory(tempSevenZipPath);
-            Directory.CreateDirectory(tempDismMountPath);
-            Directory.CreateDirectory(tempMediumExtractPath);
-            Directory.CreateDirectory(tempUpdateDlPath);
-        }
+            if (path == Path.GetTempPath()) continue;
+            if (path == null) continue;
 
-        TemporaryPath = tempDirNew;
-        DismMountPath = tempDismMountPath;
-        MediumExtractPath = tempMediumExtractPath;
-        UtilsPath = tempSevenZipPath;
-        DownloadedUpdates = tempUpdateDlPath;
-        SevenZipExe = Path.Combine(UtilsPath, "7za.exe");
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+        }
     }
 
     private static void DeleteTempPath()
     {
-        if (TemporaryPath != null)
+        if (Directories!.WuRoot != null)
         {
-            Directory.Delete(TemporaryPath, recursive: true);
+            if (!Directory.Exists(Directories.WuRoot))
+                return;
+            Directory.Delete(Directories.WuRoot, recursive: true);
         }
     }
 
@@ -360,59 +259,60 @@ public class WUIntegrateRoot
             ".ESD" => MediumType.EsdFile,
             _ => MediumType.Unknown,
         };
-        Console.WriteLine($"Medium identified as {Medium}");
         if (Medium == MediumType.IsoFile)
         {
-            MediumPath = Path.Combine(Path.Combine(MediumExtractPath!, "sources"), "install.wim");
+            Directories!.MediumPath = Path.Combine(Path.Combine(Directories.MediumExtractPath, "sources"), "install.wim");
             return;
         }
 
         if (Medium == MediumType.WimFile || Medium == MediumType.EsdFile)
         {
-            MediumPath = path;
+            Directories!.MediumPath = path;
 
             var parentPath = Path.GetDirectoryName(path);
             var di = new DirectoryInfo(parentPath!);
             if (di.Attributes.HasFlag(FileAttributes.ReadOnly))
             {
                 Helper.ExceptionFactory<UnauthorizedAccessException>(
-                    "Directory of the WIM/ESD is read only. This is not supported. Please move the WIM file to a writable directory or drive."
+                    "Directory of the WIM is read only. This is not supported. Please move the WIM file to a writable directory or drive."
                 );
             }
             return;
         }
 
-        Helper.ExceptionFactory<ArgumentException>("The given path was not a WIM/ESD or ISO file.");
+        Helper.ExceptionFactory<ArgumentException>("The given path is not a valid WIM or ISO file.");
     }
 
-    private static void ExtractISO()
+    private static async Task ExtractISO(string path)
     {
-        if (File.Exists(SevenZipExe))
+        using var udfStream = new FileStream(path, FileMode.Open, FileAccess.Read);
+        using var reader = new UdfReader(udfStream);
+        var extractor = new Extractor();
+        var root = reader.Root;
+        var allFiles = root.GetFiles("*", searchOption: SearchOption.AllDirectories);
+
+        // Create destination folder structure
+        byte[] buffer = new byte[81920];
+        long totalBytes = allFiles.Sum(x => x.Length);
+        long totalBytesRead = 0;
+        int bytesRead;
+
+        foreach (var file in allFiles)
         {
-            string arguments = $"x \"{MediumPath}\" -o\"{MediumExtractPath}\" -y";
+            using var sourceFileStream = file.OpenRead();
 
-            ProcessStartInfo startInfo = new()
-            {
-                FileName = SevenZipExe,
-                Arguments = arguments,
-                CreateNoWindow = true,
-                UseShellExecute = false,
-            };
+            // Create directory if it doesn't exist
+            var destinationPath = Path.Combine(Directories!.MediumExtractPath, file.FullName);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
 
-            try
-            {
-                using (Process? process = Process.Start(startInfo))
-                {
-                    if (process == null)
-                        Helper.ExceptionFactory<Exception>("Failed to start 7zr.exe process.");
-                    process!.WaitForExit();
-                }
+            using var destinationFileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write);
 
-                Console.WriteLine("ISO extraction has completed.");
-            }
-            catch (Exception ex)
+            while ((bytesRead = sourceFileStream.Read(buffer)) > 0)
             {
-                Helper.ExceptionFactory<Exception>($"ISO extraction failed: {ex}");
+                await destinationFileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                totalBytesRead += bytesRead;
+                int progress = (int)((double)totalBytesRead / totalBytes * 100);
+                ConsoleWriter.WriteProgress(100, progress, 100, "Extracting", ConsoleColor.White);
             }
         }
     }
@@ -425,29 +325,46 @@ public class WUIntegrateRoot
         try
         {
             DismImageInfoCollection ImageInfo = DismApi.GetImageInfo(path);
+            IntegratableImages = [];
+            string bar = new string('-', 20);
 
+            ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
             foreach (var index in ImageInfo)
             {
-                Console.WriteLine(
+                ConsoleWriter.WriteLine(
                     $"""
                     [{index.ImageIndex}]
                         {index.ImageName}
                         {index.Architecture}
+                        {index.ProductVersion.Major}.{index.ProductVersion.Minor}.{index.ProductVersion.Build}.{index.ProductVersion.Revision}
                     """
-                );
+                , ConsoleColor.White);
+                ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
             }
 
             do
             {
-                WimIndex = Helper.PromptForInt(
-                    "Please select the number for the WIM index you would like to integrate to: "
-                );
+                WimIndex = ConsoleWriter.PromptInt(
+                    "Choose a WIM index. Enter 0 for all. "
+                , ConsoleColor.Green);
+
+                if (WimIndex == 0) break;
+
             } while (!ImageInfo.Any(x => x.ImageIndex == WimIndex));
 
-            var SelectedImage = ImageInfo.First(x => x.ImageIndex == WimIndex);
-
-            SetWindowsVersion(SelectedImage.ProductVersion.Build, SelectedImage.ProductType);
-            SetArchitecture(SelectedImage.Architecture);
+            if (WimIndex == 0)
+            {
+                foreach (var image in ImageInfo)
+                {
+                    IntegratableImages.Add(image);
+                }
+                return;
+            }
+            else
+            {
+                var SelectedImage = ImageInfo.First(x => x.ImageIndex == WimIndex);
+                IntegratableImages.Add(SelectedImage);
+            }
         }
         catch (Exception ex)
         {
@@ -460,14 +377,14 @@ public class WUIntegrateRoot
         var existingImages = DismApi.GetMountedImages();
         foreach (var image in existingImages)
         {
-            Console.WriteLine($"Existing mounted image detected: {image.MountPath}");
-            DismApi.UnmountImage(image.MountPath, false);
+            ConsoleWriter.WriteLine($"[!] Existing mounted image detected: {image.MountPath}", ConsoleColor.Red);
+            DismApi.UnmountImage(image.MountPath, false, progressCallback: DismCallback);
         }
 
         try
         {
-            DismApi.MountImage(MediumPath!, DismMountPath!, WimIndex, false);
-            Console.WriteLine($"WIM is now mounted to: {DismMountPath}");
+            DismApi.MountImage(Directories!.MediumPath!, Directories.DismMountPath, WimIndex, false, progressCallback: DismCallback);
+            ConsoleWriter.WriteLine($"[i] WIM is now mounted to: {Directories.DismMountPath}", ConsoleColor.Yellow);
         }
         catch (DismException ex)
         {
@@ -479,12 +396,12 @@ public class WUIntegrateRoot
     {
         SystemArchitecture = architecture switch
         {
-            DismProcessorArchitecture.Intel => UpdateSystem.Architecture.x86,
-            DismProcessorArchitecture.AMD64 => UpdateSystem.Architecture.x64,
-            DismProcessorArchitecture.ARM64 => UpdateSystem.Architecture.ARM64,
-            _ => UpdateSystem.Architecture.Unknown,
+            DismProcessorArchitecture.Intel => Architecture.x86,
+            DismProcessorArchitecture.AMD64 => Architecture.x64,
+            DismProcessorArchitecture.ARM64 => Architecture.ARM64,
+            _ => Architecture.Unknown,
         };
-        if (SystemArchitecture == UpdateSystem.Architecture.Unknown)
+        if (SystemArchitecture == Architecture.Unknown)
         {
             Helper.ExceptionFactory<ArgumentException>($"{architecture} is not supported.");
         }
@@ -492,6 +409,15 @@ public class WUIntegrateRoot
 
     private static void SetWindowsVersion(int build, string productType)
     {
+        if ((build >= 19041 && build <= 19045) || (build >= 22621 && build <= 22631))
+        {
+            Console.WriteLine("""
+                WARNING:
+                    1904X and 226X1 builds are forced to their latest version.
+                    This works, but they will not update if they are end of life.
+                """);
+        }
+
         // Server ProductType is ServerNT, EditionID starts with Server
         // Client ProductType is WinNT, EditionID is random
         if (productType == "ServerNT")
@@ -499,28 +425,28 @@ public class WUIntegrateRoot
             switch (build)
             {
                 case 6001:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2008;
+                    WindowsVersion = WindowsVersion.WindowsServer2008;
                     break;
                 case 7601:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2008R2;
+                    WindowsVersion = WindowsVersion.WindowsServer2008R2;
                     break;
                 case 9200:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2012;
+                    WindowsVersion = WindowsVersion.WindowsServer2012;
                     break;
                 case 9600:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2012R2;
+                    WindowsVersion = WindowsVersion.WindowsServer2012R2;
                     break;
                 case 14393:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2016;
+                    WindowsVersion = WindowsVersion.WindowsServer2016;
                     break;
                 case 17763:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2019;
+                    WindowsVersion = WindowsVersion.WindowsServer2019;
                     break;
                 case 20348:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2022;
+                    WindowsVersion = WindowsVersion.WindowsServer2022;
                     break;
                 case 26100:
-                    WindowsVersion = UpdateSystem.WindowsVersion.WindowsServer2025;
+                    WindowsVersion = WindowsVersion.WindowsServer2025;
                     break;
             }
         }
@@ -529,31 +455,31 @@ public class WUIntegrateRoot
         {
             WindowsVersion = build switch
             {
-                7601 => UpdateSystem.WindowsVersion.Windows7,
-                9600 => UpdateSystem.WindowsVersion.Windows81,
-                10240 => UpdateSystem.WindowsVersion.Windows10RTM,
-                10586 => UpdateSystem.WindowsVersion.Windows10TH2,
-                14393 => UpdateSystem.WindowsVersion.Windows10RS1,
-                15063 => UpdateSystem.WindowsVersion.Windows10RS2,
-                16299 => UpdateSystem.WindowsVersion.Windows10RS3,
-                17134 => UpdateSystem.WindowsVersion.Windows10RS4,
-                17763 => UpdateSystem.WindowsVersion.Windows10RS5,
-                18362 => UpdateSystem.WindowsVersion.Windows1019H1,
-                18363 => UpdateSystem.WindowsVersion.Windows1019H2,
-                19041 => UpdateSystem.WindowsVersion.Windows1020H1,
-                19042 => UpdateSystem.WindowsVersion.Windows1020H2,
-                19043 => UpdateSystem.WindowsVersion.Windows1021H1,
-                19044 => UpdateSystem.WindowsVersion.Windows1021H2,
-                19045 => UpdateSystem.WindowsVersion.Windows1022H2,
-                22000 => UpdateSystem.WindowsVersion.Windows1121H2,
-                22621 => UpdateSystem.WindowsVersion.Windows1122H2,
-                22631 => UpdateSystem.WindowsVersion.Windows1123H2,
-                26100 => UpdateSystem.WindowsVersion.Windows1124H2,
-                _ => UpdateSystem.WindowsVersion.Unknown,
+                7601 => WindowsVersion.Windows7,
+                9600 => WindowsVersion.Windows81,
+                10240 => WindowsVersion.Windows10RTM,
+                10586 => WindowsVersion.Windows10TH2,
+                14393 => WindowsVersion.Windows10RS1,
+                15063 => WindowsVersion.Windows10RS2,
+                16299 => WindowsVersion.Windows10RS3,
+                17134 => WindowsVersion.Windows10RS4,
+                17763 => WindowsVersion.Windows10RS5,
+                18362 => WindowsVersion.Windows1019H1,
+                18363 => WindowsVersion.Windows1019H2,
+                19041 => WindowsVersion.Windows1022H2,
+                19042 => WindowsVersion.Windows1022H2,
+                19043 => WindowsVersion.Windows1022H2,
+                19044 => WindowsVersion.Windows1022H2,
+                19045 => WindowsVersion.Windows1022H2,
+                22000 => WindowsVersion.Windows1121H2,
+                22621 => WindowsVersion.Windows1123H2,
+                22631 => WindowsVersion.Windows1123H2,
+                26100 => WindowsVersion.Windows1124H2,
+                _ => WindowsVersion.Unknown,
             };
         }
 
-        if (WindowsVersion == UpdateSystem.WindowsVersion.Unknown)
+        if (WindowsVersion == WindowsVersion.Unknown)
         {
             Helper.ExceptionFactory<ArgumentException>("Windows version is unsupported.");
         }
@@ -563,29 +489,39 @@ public class WUIntegrateRoot
     {
         // Use DISM update API to integrate all files within the update folder
 
-        var session = DismApi.OpenOfflineSession(DismMountPath!);
+        var session = DismApi.OpenOfflineSession(Directories!.DismMountPath);
 
-        var updateFiles = Directory.GetFiles(DownloadedUpdates!);
+        var updateFiles = Directory.GetFiles(Directories.DlUpdatesPath);
+        int count = updateFiles.Count();
+        int current = 1;
         foreach (var updateFile in updateFiles)
         {
+            ConsoleWriter.WriteMarkedLine(" Integrating Update...", $"[{current}/{count}]", ConsoleColor.Red, ConsoleColor.Red);
             try
             {
-                DismApi.AddPackage(session, updateFile, false, false);
+                DismApi.AddPackage(session, updateFile, false, false, progressCallback: DismCallback);
+                Helper.DeleteFile(updateFile);
             }
             catch (DismException ex)
             {
-                Console.WriteLine($"Failed to integrate update: {ex}");
+                ConsoleWriter.WriteLine($"[!] Failed to integrate update: {ex}", ConsoleColor.Magenta);
             }
+            current++;
         }
 
         DismApi.CloseSession(session);
+    }
+
+    private static void DismCallback(DismProgress dismProgress)
+    {
+        ConsoleWriter.WriteProgress(100, dismProgress.Current, dismProgress.Total, "DISM", ConsoleColor.Yellow);
     }
 
     private static void CommitWIM()
     {
         try
         {
-            DismApi.UnmountImage(DismMountPath!, true);
+            DismApi.UnmountImage(Directories!.DismMountPath, true, progressCallback: DismCallback);
         }
         catch (DismException ex)
         {
@@ -617,6 +553,4 @@ public class WUIntegrateRoot
 
     // THINGS TO DO LATER
     private static void CreateBootableImage() { }
-
-    private static void DisplayRunningOSInformation() { }
 }

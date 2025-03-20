@@ -13,8 +13,8 @@ namespace WUIntegrate
         public string? UpdateId { get; set; }
         public int? RevisionId { get; set; }
         public string? KbNumber { get; set; }
-        public UpdateSystem.WindowsVersion? OsVersion { get; set; }
-        public UpdateSystem.Architecture? Architecture { get; set; }
+        public WindowsVersion? OsVersion { get; set; }
+        public Architecture? Architecture { get; set; }
         public List<string>? SupersededBy { get; set; }
         public List<string>? Prerequisites { get; set; }
     };
@@ -65,61 +65,20 @@ namespace WUIntegrate
 
     partial class UpdateSystem
     {
-        internal enum WindowsVersion
-        {
-            Unknown,
-            Windows7,
-            Windows81,
-            Windows10RTM,
-            Windows10TH1,
-            Windows10TH2,
-            Windows10RS1,
-            Windows10RS2,
-            Windows10RS3,
-            Windows10RS4,
-            Windows10RS5,
-            Windows1019H1,
-            Windows1019H2,
-            Windows1020H1,
-            Windows1020H2,
-            Windows1021H1,
-            Windows1021H2,
-            Windows1022H2,
-            Windows1121H2,
-            Windows1122H2,
-            Windows1123H2,
-            Windows1124H2,
-            WindowsServer2008,
-            WindowsServer2008R2,
-            WindowsServer2012,
-            WindowsServer2012R2,
-            WindowsServer2016,
-            WindowsServer2019,
-            WindowsServer2022,
-            WindowsServer2025
-        }
-
-        internal enum Architecture
-        {
-            x64,
-            x86,
-            ARM64,
-            Unknown
-        }
-
+       
         const string OFFLINE_CAB = @"https://wsusscn2.cab";
 
         string? indexXmlPath;
         string? packageXmlPath;
         string? localizationPath;
 
-        private readonly string cabinetDownloadPath = Path.Combine(WUIntegrateRoot.TemporaryPath!, "wsusscn2.cab");
+        private readonly string cabinetDownloadPath = Path.Combine(WUIntegrateRoot.Directories!.WuRoot, "wsusscn2.cab");
 
         private readonly Dictionary<int, Update> Updates = [];
         private readonly LookupTable lookupTable = new();
 
-        private readonly WindowsVersion isoVersion;
-        private readonly Architecture isoArchitecture;
+        private WindowsVersion isoVersion;
+        private Architecture isoArchitecture;
 
         private static readonly JsonSerializerOptions jsonSerializerOptions = new() { WriteIndented = false };
 
@@ -132,100 +91,114 @@ namespace WUIntegrate
         [GeneratedRegex(@"KB\d{7}")]
         private static partial Regex KbNumberRegex();
 
-        public UpdateSystem(WindowsVersion windowsVersion, Architecture architecture)
+        public UpdateSystem()
+        {
+
+            ConsoleWriter.WriteLine("[i] Downloading offline update scan cabinet...", ConsoleColor.Yellow);
+            DownloadOfflineCab();
+
+            ConsoleWriter.WriteLine("[i] Extracting offline update scan cabinet...", ConsoleColor.Yellow);
+            ExtractScanCabinet();
+
+            ConsoleWriter.WriteLine("[i] Extracting package cabinet...", ConsoleColor.Yellow);
+            ExtractPackageCabinet();
+
+            ConsoleWriter.WriteLine("[i] Loading lookup table...", ConsoleColor.Yellow);
+            if (indexXmlPath == null) Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
+            LoadLookupTable(indexXmlPath!);
+
+            ConsoleWriter.WriteLine("[i] Extracting localization files...", ConsoleColor.Yellow);
+            ExtractLocalization();
+
+            ConsoleWriter.WriteLine("[i] Loading package.xml...", ConsoleColor.Yellow);
+            if (packageXmlPath == null) Helper.ExceptionFactory<FileNotFoundException>("Package.xml was not detected.");
+            LoadPackageXml(packageXmlPath!);
+
+            ConsoleWriter.WriteLine("[i] Extracting localization files (Defender will make this VERY slow). Please Wait...", ConsoleColor.Yellow);
+            LoadPackageLocalization();
+
+            ConsoleWriter.WriteLine("[i] Performing cleanup on download files...", ConsoleColor.Yellow);
+            Cleanup();
+
+            ConsoleWriter.WriteLine("[i] Removing updates without KB number or OS version...", ConsoleColor.Yellow);
+            RemoveUpdatesWithoutKB();
+        }
+
+        public void Start(WindowsVersion windowsVersion, Architecture architecture)
         {
             isoVersion = windowsVersion;
             isoArchitecture = architecture;
 
-            Console.WriteLine("Downloading offline update scan cabinet...");
-            DownloadOfflineCab();
+            // Get updates for this version
+            IEnumerable<Update> SpecificVersionUpdates = Updates.Values.Where(u => u.OsVersion == windowsVersion).Intersect(Updates.Values.Where(u => u.Architecture == architecture));
 
-            Console.WriteLine("Extracting offline update scan cabinet...");
-            ExtractScanCabinet();
+            ConsoleWriter.WriteLine("[i] Finding the latest updates...", ConsoleColor.Yellow);
+            var latestUpdates = GetLatestUpdates([.. SpecificVersionUpdates]);
 
-            Console.WriteLine("Extracting package cabinet...");
-            ExtractPackageCabinet();
+            PrintInformation(latestUpdates);
 
-            Console.WriteLine("Loading lookup table...");
-            if (indexXmlPath == null) Helper.Error("Index.xml was not detected.");
-            LoadLookupTable(indexXmlPath!);
-
-            Console.WriteLine("Extracting localization files...");
-            ExtractLocalization();
-
-            Console.WriteLine("Loading package.xml...");
-            if (packageXmlPath == null) Helper.Error("Package.xml was not detected.");
-            LoadPackageXml(packageXmlPath!);
-
-            Console.WriteLine("Extracting localization files (Defender will make this VERY slow). Please Wait...");
-            LoadPackageLocalization();
-
-            Console.WriteLine("Performing cleanup on download files...");
-            Cleanup();
-
-            Console.WriteLine("Removing updates without KB number or OS version...");
-            RemoveUpdatesWithoutKB();
-
-            Console.WriteLine("Removing updates for other architectures...");
-            RemoveOtherArchitectures(isoArchitecture);
-
-            Console.WriteLine("Removing updates from other versions...");
-            RemoveUpdatesFromOtherVersions();
-
-            Console.WriteLine("Finding the latest updates...");
-            GetLatestUpdates();
-
-            PrintInformation();
-
-            if (Helper.PromptYesNo($"Are you sure you want to integrate updates? There is NO undoing this action."))
+            if (ConsoleWriter.ChoiceYesNo($"Are you sure you want to integrate updates? There is NO undoing this action.", ConsoleColor.Green))
             {
-                StartUpdateDownload();
+                StartUpdateDownload(latestUpdates);
                 ReadyToIntegrate = true;
-            } else
+            }
+            else
             {
-                Console.WriteLine("Updates will not be integrated.");
+                ConsoleWriter.WriteLine("[!] Updates will not be integrated.", ConsoleColor.Red);
                 ReadyToIntegrate = false;
             }
 
-            Console.WriteLine("Update System has finished integration tasks.");
+            ConsoleWriter.WriteLine("[i] Update System has finished operations.", ConsoleColor.Yellow);
         }
 
-        private void PrintInformation()
+        private void PrintInformation(IEnumerable<Update> customUpdates)
         {
-            Console.WriteLine($"""
+            string bar = new string('-', 20);
+            ConsoleWriter.WriteLine($"""
                 You are integrating updates for: {isoVersion}.
 
                 Architecture: {isoArchitecture}.
-                Updates To Integrate: {Updates.Count}.
-                """);
+                Updates To Integrate: {customUpdates.Count()}.
+                """, ConsoleColor.White);
+            ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
+            foreach (var update in customUpdates)
+            {
+                ConsoleWriter.WriteLine($"""
+                    KB Number: {update.KbNumber}.
+                    Release Date: {update.CreationDate}.
+                    OS Version: {update.OsVersion}.
+                    Architecture: {update.Architecture}.
+                    """, ConsoleColor.White);
+                ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
+            }
         }
 
-        private void StartUpdateDownload() {
+        private void StartUpdateDownload(IEnumerable<Update> updatesList) {
             // Start the download of the updates
             Task.Run(async () =>
             {
-                await DownloadUpdates();
+                await DownloadUpdates(updatesList);
             }).Wait();
         }
 
-        private async Task DownloadUpdates()
+        private async Task DownloadUpdates(IEnumerable<Update> updatesList)
         {
             List<string> updatesToGet = new(Updates.Count);
-            foreach (var update in Updates)
+            foreach (var update in updatesList)
             {
-                if (update.Value.UpdateId != null)
+                if (update.UpdateId != null)
                 {
-                    updatesToGet.Add(update.Value.UpdateId);
+                    updatesToGet.Add(update.UpdateId);
                 }
             }
 
             if (updatesToGet.Count == 0)
             {
-                Console.WriteLine("No updates to download.");
+                ConsoleWriter.WriteLine("[i] No updates to download.", ConsoleColor.Yellow);
                 return;
             }
 
-            string downloadDir = Path.Combine(WUIntegrateRoot.DownloadedUpdates!);
+            string downloadDir = Path.Combine(WUIntegrateRoot.Directories!.DlUpdatesPath);
 
             foreach (var updateId in updatesToGet)
             {
@@ -233,15 +206,13 @@ namespace WUIntegrate
                 foreach (var link in downloadLinks)
                 {
                     string downloadPath = Path.Combine(downloadDir, link.FileName);
-                    Helper.DownloadFileUri(link.Url, downloadPath);
+                    Helper.DownloadFile(link.Url, downloadPath);
                 }
             }
         }
 
         private static async Task<List<DownloadLink>> SearchUpdateCatalog(string updateId)
         {
-            Console.WriteLine($"Getting download links for: {updateId}...");
-
             // Create JSON data
             var updateData = new
             {
@@ -269,8 +240,6 @@ namespace WUIntegrate
             );
 
             // Get response content
-
-            Console.WriteLine($"Response status code: {response.StatusCode}");
             var responseText = await response.Content.ReadAsStringAsync();
 
             responseText = responseText.Replace("www.download.windowsupdate", "download.windowsupdate");
@@ -310,40 +279,47 @@ namespace WUIntegrate
 
         public static void Cleanup()
         {
-            Helper.DeleteFolder(WUIntegrateRoot.offlinescancab!);
+            Helper.DeleteFolder(WUIntegrateRoot.Directories!.ScanCabExtPath);
         }
 
         private void DownloadOfflineCab()
         {
-            Helper.DownloadFileUri(OFFLINE_CAB, cabinetDownloadPath);
+            Helper.DownloadFile(OFFLINE_CAB, cabinetDownloadPath);
         }
 
         private void ExtractScanCabinet()
         {
-            WUIntegrateRoot.offlinescancab = Path.Combine(WUIntegrateRoot.TemporaryPath!, "offlinescancab");
-            Helper.ExtractFile(cabinetDownloadPath, Path.Combine(WUIntegrateRoot.TemporaryPath!, "offlinescancab"));
+            Helper.ExtractFile(cabinetDownloadPath, WUIntegrateRoot.Directories!.ScanCabExtPath);
             Helper.DeleteFile(cabinetDownloadPath);
 
-            indexXmlPath = Path.Combine(WUIntegrateRoot.offlinescancab, "index.xml");
+            indexXmlPath = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "index.xml");
         }
 
         private void ExtractPackageCabinet()
         {
-            var targetCab = Path.Combine(WUIntegrateRoot.offlinescancab!, "package.cab");
-            if (!File.Exists(targetCab)) Helper.Error("Package.CAB was not detected.");
+            var targetCab = Path.Combine(WUIntegrateRoot.Directories!.ScanCabExtPath, "package.cab");
+            if (!File.Exists(targetCab)) Helper.ExceptionFactory<FileNotFoundException>("Package.CAB was not detected.");
 
-            Helper.ExtractFile(targetCab, Path.Combine(WUIntegrateRoot.offlinescancab!, "package"));
+            Helper.ExtractFile(targetCab, Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package"));
 
-            packageXmlPath = Path.Combine(WUIntegrateRoot.offlinescancab!, "package", "package.xml");
+            packageXmlPath = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package", "package.xml");
         }
 
         private void ExtractLocalization()
         {
-            var destination = Path.Combine(WUIntegrateRoot.offlinescancab!, "localizations");
+            var destination = Path.Combine(WUIntegrateRoot.Directories!.ScanCabExtPath, "localizations");
 
-            if (lookupTable.PackageLookupTable.Count == 0) Helper.Error("Lookup table is empty. Unable to continue.");
+            if (lookupTable.PackageLookupTable.Count == 0) Helper.ExceptionFactory<Exception>("Lookup table is empty. Unable to continue.");
 
-            Helper.ExtractFile(Path.Combine(WUIntegrateRoot.offlinescancab!, "package*.cab"), Path.Combine(WUIntegrateRoot.offlinescancab!, destination), @"l\en\*");
+            foreach (var file in Directory.GetFiles(WUIntegrateRoot.Directories.ScanCabExtPath))
+            {
+                var fileObject = new FileInfo(file);
+                // if file is not a directory, is a .cab file, and is not package.cab
+                if (fileObject.Extension == ".cab" && fileObject.Name != "package.cab")
+                {
+                    Helper.ExtractFile(file, destination, @"l\en");
+                }
+            }
 
             localizationPath = Path.Combine(destination, "l", "en");
         }
@@ -388,7 +364,7 @@ namespace WUIntegrate
                     lookupTable.Add(rangeStart, nameAttr.Value);
                 }
             }
-            Console.WriteLine("Loaded lookup table.");
+            ConsoleWriter.WriteLine("[i] Loaded update lookup table.", ConsoleColor.Yellow);
         }
 
         private void LoadPackageLocalization()
@@ -433,7 +409,7 @@ namespace WUIntegrate
                 ["ARM64"] = Architecture.ARM64
             };
 
-            if (localizationPath == null) Helper.Error("Localization path was not detected.");
+            if (localizationPath == null) Helper.ExceptionFactory<DirectoryNotFoundException>("Localization path was not detected.");
             string[] files = Directory.GetFiles(localizationPath!);
 
             // Pre-compile the regex patterns for performance
@@ -570,90 +546,45 @@ namespace WUIntegrate
                     Prerequisites = prerequisiteIds
                 };
             }
-            Console.WriteLine("Finished loading package.xml.");
+            ConsoleWriter.WriteLine("[i] Finished loading package.xml.", ConsoleColor.Yellow);
         }
 
-        private void RemoveUpdatesFromOtherVersions()
+        private static int? TryParseInt(string value)
         {
-            var keysToRemove = new List<int>();
-            foreach (var update in Updates)
-            {
-                if (update.Value.OsVersion != null && update.Value.OsVersion != isoVersion)
-                {
-                    keysToRemove.Add(update.Key);
-                }
-            }
-            foreach (var key in keysToRemove)
-            {
-                Updates.Remove(key);
-            }
+            return int.TryParse(value, out int result) ? (int?)result : null;
         }
 
-        private void GetLatestUpdates()
+        private static IEnumerable<Update> GetLatestUpdates(IEnumerable<Update> customUpdates)
         {
-            bool updatesRemoved;
+            var latestUpdates = customUpdates.ToList();
 
-            do
+            var updatesToRemove = new HashSet<Update>();
+
+            foreach (var update in latestUpdates)
             {
-                updatesRemoved = false;
-                var updatesToRemove = new List<int>();
-
-                foreach (var update in Updates)
+                if (update.SupersededBy != null)
                 {
-                    if (update.Value.SupersededBy != null)
+                    var supersededBy = update.SupersededBy
+                        .Select(i => TryParseInt(i))
+                        .Where(id => id.HasValue)
+                        .Select(id => id!.Value)
+                        .ToList();
+
+                    foreach (var otherUpdate in latestUpdates)
                     {
-
-                        // Convert the list of strings to a list of integers.
-                        List<int?> supersededBy = [];
-                        foreach (var i in update.Value.SupersededBy)
+                        if (otherUpdate.RevisionId == null) continue;
+                        if (supersededBy.Contains(otherUpdate.RevisionId.Value))
                         {
-                            if (int.TryParse(i, out int id))
-                            {
-                                supersededBy.Add(id);
-                            }
-                        }
-
-                        // Search other updates for the update that supersedes this one.
-                        foreach (var otherUpdate in Updates)
-                        {
-                            if (otherUpdate.Value.RevisionId == null) continue;
-
-                            if (supersededBy.Contains(otherUpdate.Value.RevisionId))
-                            {
-                                updatesToRemove.Add(update.Key);
-                                updatesRemoved = true;
-                                break;
-                            }
+                            updatesToRemove.Add(update);
+                            break;
                         }
                     }
                 }
-
-                // Remove the updates that have been superseded by another update.
-                foreach (var update in updatesToRemove)
-                {
-                    Updates.Remove(update);
-                }
-
-            } while (updatesRemoved);
-        }
-
-        private void RemoveOtherArchitectures(Architecture currentArchitecture)
-        {
-            var updatesToRemove = new List<int>();
-
-            foreach (var update in Updates)
-            {
-                if (update.Value.Architecture != null && update.Value.Architecture != currentArchitecture)
-                {
-                    updatesToRemove.Add(update.Key);
-                }
             }
 
-            foreach (var update in updatesToRemove)
-            {
-                Updates.Remove(update);
-            }
+            return latestUpdates.Where(update => !updatesToRemove.Contains(update));
         }
+
     }
 
 }

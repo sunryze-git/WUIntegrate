@@ -24,36 +24,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Utils\7za.dll" />
-    <None Remove="Utils\7za.exe" />
-    <None Remove="Utils\7zxa.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <COMReference Include="WUApiLib">
-      <WrapperTool>tlbimp</WrapperTool>
-      <VersionMinor>0</VersionMinor>
-      <VersionMajor>2</VersionMajor>
-      <Guid>b596cc9f-56e5-419e-a622-e01bb457431e</Guid>
-      <Lcid>0</Lcid>
-      <Isolated>false</Isolated>
-      <EmbedInteropTypes>true</EmbedInteropTypes>
-    </COMReference>
-  </ItemGroup>
-
-  <ItemGroup>
     <Content Include="Setup.ico" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Utils\7za.dll" />
-    <EmbeddedResource Include="Utils\7za.exe" />
-    <EmbeddedResource Include="Utils\7zxa.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <PackageReference Include="Microsoft.CST.RecursiveExtractor" Version="1.2.34" />
     <PackageReference Include="Microsoft.Dism" Version="3.3.0" />
-    <PackageReference Include="SharpCompress" Version="0.39.0" />
+    <PackageReference Include="SevenZipExtractor" Version="1.0.19" />
     <PackageReference Include="System.Collections" Version="4.3.0" />
   </ItemGroup>
 
