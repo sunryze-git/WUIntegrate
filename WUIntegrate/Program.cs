@@ -17,14 +17,23 @@ public class WUIntegrateRoot
     private static string? ArgumentPath = null;
     private static List<DismImageInfo>? IntegratableImages;
     private static UpdateSystem? updateSystem;
-    internal static Locations? Directories;
+    public static readonly Locations Directories = new()
+    {
+        SysTemp = Path.GetTempPath(),
+                WuRoot = Path.Combine(Path.GetTempPath(), "WUIntegrate"),
+                ScanCabExtPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "scancab"),
+                MediumPath = null,
+                DismMountPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "mount"),
+                MediumExtractPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "extract"),
+                DlUpdatesPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
+    };
 
     public static void Main(string[] args)
     {
         Console.Title = "WUIntegrate";
 
         if (!Helper.IsCurrentUserAdmin())
-            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Magenta);
+            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Yellow);
 
         ArgumentPath = args.FirstOrDefault();
         ArgumentPath = @"C:\Users\Ryze\Downloads\en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96\sources\install.wim";
@@ -34,7 +43,7 @@ public class WUIntegrateRoot
         // Test Arguments
         if (ArgumentPath == null)
         {
-            ConsoleWriter.WriteLine(Constants.Notices.Usage, ConsoleColor.Magenta);
+            ConsoleWriter.WriteLine(Constants.Notices.Usage, ConsoleColor.Yellow);
             return;
         }
 
@@ -44,7 +53,7 @@ public class WUIntegrateRoot
         // Phase 2: DISM Choice
         if (SkipDism)
         {
-            ConsoleWriter.WriteMarkedLine("DISM is disabled. Continuing is impossible.", "[!]", ConsoleColor.Red, ConsoleColor.Red);
+            ConsoleWriter.WriteLine("[i] DISM is disabled. Continuing is impossible.", ConsoleColor.Red);
             CleanupPhase();
             return;
         }
@@ -70,29 +79,29 @@ public class WUIntegrateRoot
         // Initializing DISM API
         if (!SkipDism)
         {
-            ConsoleWriter.WriteMarkedLine(" Initializing DISM", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            ConsoleWriter.WriteLine("[i] Initializing DISM", ConsoleColor.Cyan);
             DismApi.Initialize(DismLogLevel.LogErrorsWarningsInfo);
         }
         else
         {
-            ConsoleWriter.WriteMarkedLine(" DISM Disabled!", "[!]", ConsoleColor.Red, ConsoleColor.Red);
+            ConsoleWriter.WriteLine("[i] DISM disabled!", ConsoleColor.Red);
         }
 
         // Create Paths
-        ConsoleWriter.WriteMarkedLine(" Creating temporary directories", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        ConsoleWriter.WriteLine("[i] Creating temporary directories", ConsoleColor.Cyan);
         CreatePaths();
 
         // Identify Medium
-        ConsoleWriter.WriteMarkedLine(" Identifying installation medium type", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        ConsoleWriter.WriteLine("[i] Identifying installation medium type", ConsoleColor.Cyan);
         IdentifyMedium(ArgumentPath!);
-        ConsoleWriter.WriteMarkedLine($" Detected medium: {Medium}", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        ConsoleWriter.WriteLine($"[i] Detected medium: {Medium}", ConsoleColor.Cyan);
 
 
         // Handle different medium types
         switch (Medium)
         {
             case MediumType.IsoFile:
-                ConsoleWriter.WriteMarkedLine(" Extracting ISO file", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                ConsoleWriter.WriteLine("[i] Extracting ISO file", ConsoleColor.Cyan);
                 Task.Run(async () =>
                 {
                     await ExtractISO(ArgumentPath!);
@@ -111,8 +120,8 @@ public class WUIntegrateRoot
 
     private static void DismChoicePhase()
     {
-        ConsoleWriter.WriteMarkedLine(" Loading WIM contents", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
-        SetWinVersionAndArchitecture(Directories!.MediumPath!);
+        ConsoleWriter.WriteLine("[i] Loading WIM", ConsoleColor.Cyan);
+        SetWinVersionAndArchitecture(Directories.MediumPath!);
     }
 
     private static void UpdatePhase()
@@ -120,7 +129,7 @@ public class WUIntegrateRoot
         // Start Update System
         if (!SkipUpdate)
         {
-            ConsoleWriter.WriteMarkedLine(" Initializing update downloader", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            ConsoleWriter.WriteLine("[i] Initializing update downloader", ConsoleColor.Cyan);
             updateSystem = new();
         }
 
@@ -130,7 +139,7 @@ public class WUIntegrateRoot
             var CurrentImage = IntegratableImages!.First();
 
             // Set Windows Version and Architecture
-            ConsoleWriter.WriteMarkedLine(" Setting architecture and version settings", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+            ConsoleWriter.WriteLine("[i] Setting Windows architecture and version", ConsoleColor.Cyan);
             SetWindowsVersion(CurrentImage.ProductVersion.Build, CurrentImage.ProductType);
             SetArchitecture(CurrentImage.Architecture);
 
@@ -149,7 +158,7 @@ public class WUIntegrateRoot
             // Mount WIM
             if (!SkipDism)
             {
-                ConsoleWriter.WriteMarkedLine(" Mounting WIM", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                ConsoleWriter.WriteLine("[i] Mounting WIM", ConsoleColor.Cyan);
                 MountWIM();
             }
 
@@ -157,14 +166,14 @@ public class WUIntegrateRoot
             if (!SkipUpdate)
             {
                 // Get updates for this version
-                ConsoleWriter.WriteMarkedLine(" Finding latest updates", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                ConsoleWriter.WriteLine("[i] Finding latest updates", ConsoleColor.Cyan);
                 updateSystem!.Start(WindowsVersion, SystemArchitecture);
 
                 // Integrate updates if specified
                 if (updateSystem.ReadyToIntegrate)
                 {
                     Console.Clear();
-                    ConsoleWriter.WriteMarkedLine(" Integrating Updates. This may take a while.", "[i]", ConsoleColor.Cyan, ConsoleColor.Green)
+                    ConsoleWriter.WriteLine("[i] Integrating updates. This may take a while.", ConsoleColor.Cyan);
                     IntegrateUpdateFiles();
                 }
             }
@@ -172,7 +181,7 @@ public class WUIntegrateRoot
             if (!SkipDism)
             {
                 // Unmount WIM
-                ConsoleWriter.WriteMarkedLine(" Applying WIM changes", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+                ConsoleWriter.WriteLine("[i] Applying WIM changes", ConsoleColor.Cyan);
                 CommitWIM();
             }
 
@@ -184,24 +193,13 @@ public class WUIntegrateRoot
     private static void CleanupPhase()
     {
         // Cleanup
-        ConsoleWriter.WriteMarkedLine(" Cleaning up", "[i]", ConsoleColor.Cyan, ConsoleColor.Green);
+        ConsoleWriter.WriteLine("[i] Cleaning up", ConsoleColor.Cyan);
         Cleanup();
     }
 
     // PATH OPERATIONS
     private static void CreatePaths()
     {
-
-        Directories = new Locations(
-            Path.GetTempPath(),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate"),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate", "utils"),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate", "scancab"),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate", "mount"),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate", "extract"),
-            Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
-        );
-
         foreach (var path in Directories.All)
         {
             if (path == Path.GetTempPath()) continue;
@@ -216,7 +214,7 @@ public class WUIntegrateRoot
 
     private static void DeleteTempPath()
     {
-        if (Directories!.WuRoot != null)
+        if (Directories.WuRoot != null)
         {
             if (!Directory.Exists(Directories.WuRoot))
                 return;
@@ -261,13 +259,13 @@ public class WUIntegrateRoot
         };
         if (Medium == MediumType.IsoFile)
         {
-            Directories!.MediumPath = Path.Combine(Path.Combine(Directories.MediumExtractPath, "sources"), "install.wim");
+            Directories.MediumPath = Path.Combine(Path.Combine(Directories.MediumExtractPath, "sources"), "install.wim");
             return;
         }
 
         if (Medium == MediumType.WimFile || Medium == MediumType.EsdFile)
         {
-            Directories!.MediumPath = path;
+            Directories.MediumPath = path;
 
             var parentPath = Path.GetDirectoryName(path);
             var di = new DirectoryInfo(parentPath!);
@@ -302,7 +300,7 @@ public class WUIntegrateRoot
             using var sourceFileStream = file.OpenRead();
 
             // Create directory if it doesn't exist
-            var destinationPath = Path.Combine(Directories!.MediumExtractPath, file.FullName);
+            var destinationPath = Path.Combine(Directories.MediumExtractPath, file.FullName);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
 
             using var destinationFileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write);
@@ -326,7 +324,7 @@ public class WUIntegrateRoot
         {
             DismImageInfoCollection ImageInfo = DismApi.GetImageInfo(path);
             IntegratableImages = [];
-            string bar = new string('-', 20);
+            string bar = new('-', 20);
 
             ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
             foreach (var index in ImageInfo)
@@ -383,7 +381,7 @@ public class WUIntegrateRoot
 
         try
         {
-            DismApi.MountImage(Directories!.MediumPath!, Directories.DismMountPath, WimIndex, false, progressCallback: DismCallback);
+            DismApi.MountImage(Directories.MediumPath!, Directories.DismMountPath, WimIndex, false, progressCallback: DismCallback);
             ConsoleWriter.WriteLine($"[i] WIM is now mounted to: {Directories.DismMountPath}", ConsoleColor.Yellow);
         }
         catch (DismException ex)
@@ -489,14 +487,14 @@ public class WUIntegrateRoot
     {
         // Use DISM update API to integrate all files within the update folder
 
-        var session = DismApi.OpenOfflineSession(Directories!.DismMountPath);
+        var session = DismApi.OpenOfflineSession(Directories.DismMountPath);
 
         var updateFiles = Directory.GetFiles(Directories.DlUpdatesPath);
-        int count = updateFiles.Count();
+        int count = updateFiles.Length;
         int current = 1;
         foreach (var updateFile in updateFiles)
         {
-            ConsoleWriter.WriteMarkedLine(" Integrating Update...", $"[{current}/{count}]", ConsoleColor.Red, ConsoleColor.Red);
+            ConsoleWriter.WriteLine($"[{current}/{count}] Integrating Update...", ConsoleColor.Cyan);
             try
             {
                 DismApi.AddPackage(session, updateFile, false, false, progressCallback: DismCallback);
@@ -521,7 +519,7 @@ public class WUIntegrateRoot
     {
         try
         {
-            DismApi.UnmountImage(Directories!.DismMountPath, true, progressCallback: DismCallback);
+            DismApi.UnmountImage(Directories.DismMountPath, true, progressCallback: DismCallback);
         }
         catch (DismException ex)
         {

@@ -1,16 +1,14 @@
 ﻿namespace WUIntegrate
 {
-    class Locations(string SysTemp, string WuRoot, string UtilPath, string ScanCabExtPath, string DismMountPath, string MediumExtractPath, string DlUpdatesPath)
+    public class Locations()
     {
-        public string SysTemp { get; } = SysTemp;
-        public string WuRoot { get; } = WuRoot;
-        public string UtilPath { get; } = UtilPath;
-        public string? SevenZipExe { get; set; }
-        public string ScanCabExtPath { get; } = ScanCabExtPath;
-        public string? MediumPath { get; set; }
-        public string DismMountPath { get; } = DismMountPath;
-        public string MediumExtractPath { get; } = MediumExtractPath;
-        public string DlUpdatesPath { get; } = DlUpdatesPath;
+        public required string SysTemp { get; set; }
+        public required string WuRoot { get; set; }
+        public required string ScanCabExtPath { get; set; }
+        public required string? MediumPath { get; set; }
+        public required string DismMountPath { get; set; }
+        public required string MediumExtractPath { get; set; }
+        public required string DlUpdatesPath { get; set; }
 
         public IEnumerable<string> All
         {
@@ -18,8 +16,6 @@
             {
                 yield return SysTemp;
                 yield return WuRoot;
-                yield return UtilPath;
-                yield return SevenZipExe!;
                 yield return ScanCabExtPath;
                 yield return MediumPath!;
                 yield return DismMountPath;

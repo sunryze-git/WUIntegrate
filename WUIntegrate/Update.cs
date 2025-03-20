@@ -19,13 +19,6 @@ namespace WUIntegrate
         public List<string>? Prerequisites { get; set; }
     };
 
-    struct CatalogSearchResult
-    {
-        public string Id { get; set; }
-        public string Title { get; set; }
-        public string KbNumber { get; set; }
-    }
-
     struct DownloadLink
     {
         public string DownloadId { get; set; }
@@ -66,13 +59,13 @@ namespace WUIntegrate
     partial class UpdateSystem
     {
        
-        const string OFFLINE_CAB = @"https://wsusscn2.cab";
+        private const string OFFLINE_CAB = @"https://wsusscn2.cab";
 
-        string? indexXmlPath;
-        string? packageXmlPath;
-        string? localizationPath;
+        private string? indexXmlPath;
+        private string? packageXmlPath;
+        private string? localizationPath;
 
-        private readonly string cabinetDownloadPath = Path.Combine(WUIntegrateRoot.Directories!.WuRoot, "wsusscn2.cab");
+        private readonly string cabinetDownloadPath = Path.Combine(WUIntegrateRoot.Directories.WuRoot, "wsusscn2.cab");
 
         private readonly Dictionary<int, Update> Updates = [];
         private readonly LookupTable lookupTable = new();
@@ -82,8 +75,7 @@ namespace WUIntegrate
 
         private static readonly JsonSerializerOptions jsonSerializerOptions = new() { WriteIndented = false };
 
-        public bool ReadyToIntegrate;
-
+        public bool ReadyToIntegrate { get; set; }
 
         [GeneratedRegex(@"(http[s]?\:\/\/(?:dl\.delivery\.mp\.microsoft\.com|(?:catalog\.s\.)?download\.windowsupdate\.com)\/[^\'""]*)")]
         private static partial Regex DownloadUrlRegex();
@@ -153,7 +145,7 @@ namespace WUIntegrate
 
         private void PrintInformation(IEnumerable<Update> customUpdates)
         {
-            string bar = new string('-', 20);
+            string bar = new('-', 20);
             ConsoleWriter.WriteLine($"""
                 You are integrating updates for: {isoVersion}.
 
@@ -198,7 +190,7 @@ namespace WUIntegrate
                 return;
             }
 
-            string downloadDir = Path.Combine(WUIntegrateRoot.Directories!.DlUpdatesPath);
+            string downloadDir = Path.Combine(WUIntegrateRoot.Directories.DlUpdatesPath);
 
             foreach (var updateId in updatesToGet)
             {
@@ -279,7 +271,7 @@ namespace WUIntegrate
 
         public static void Cleanup()
         {
-            Helper.DeleteFolder(WUIntegrateRoot.Directories!.ScanCabExtPath);
+            Helper.DeleteFolder(WUIntegrateRoot.Directories.ScanCabExtPath);
         }
 
         private void DownloadOfflineCab()
@@ -289,7 +281,7 @@ namespace WUIntegrate
 
         private void ExtractScanCabinet()
         {
-            Helper.ExtractFile(cabinetDownloadPath, WUIntegrateRoot.Directories!.ScanCabExtPath);
+            Helper.ExtractFile(cabinetDownloadPath, WUIntegrateRoot.Directories.ScanCabExtPath);
             Helper.DeleteFile(cabinetDownloadPath);
 
             indexXmlPath = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "index.xml");
@@ -297,7 +289,7 @@ namespace WUIntegrate
 
         private void ExtractPackageCabinet()
         {
-            var targetCab = Path.Combine(WUIntegrateRoot.Directories!.ScanCabExtPath, "package.cab");
+            var targetCab = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package.cab");
             if (!File.Exists(targetCab)) Helper.ExceptionFactory<FileNotFoundException>("Package.CAB was not detected.");
 
             Helper.ExtractFile(targetCab, Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package"));
@@ -307,7 +299,7 @@ namespace WUIntegrate
 
         private void ExtractLocalization()
         {
-            var destination = Path.Combine(WUIntegrateRoot.Directories!.ScanCabExtPath, "localizations");
+            var destination = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "localizations");
 
             if (lookupTable.PackageLookupTable.Count == 0) Helper.ExceptionFactory<Exception>("Lookup table is empty. Unable to continue.");
 

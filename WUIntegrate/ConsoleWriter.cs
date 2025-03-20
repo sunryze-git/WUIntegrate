@@ -5,7 +5,7 @@ namespace WUIntegrate
     static class ConsoleWriter
     {
         private static string lastLine = string.Empty;
-        private static Stopwatch Sw = new Stopwatch();
+        private static readonly Stopwatch Sw = new();
         public static void Write(string content, ConsoleColor color)
         {
             Console.ForegroundColor = color;
@@ -17,26 +17,6 @@ namespace WUIntegrate
         public static void WriteLine(string content, ConsoleColor color)
         {
             Console.ForegroundColor = color;
-            Console.WriteLine(content);
-            Console.ResetColor();
-            lastLine = content;
-        }
-
-        public static void WriteMarked(string content, string marker, ConsoleColor contentColor, ConsoleColor markerColor)
-        {
-            Console.ForegroundColor = markerColor;
-            Console.Write($"{marker} ");
-            Console.ForegroundColor = contentColor;
-            Console.Write(content);
-            Console.ResetColor();
-            lastLine = content;
-        }
-
-        public static void WriteMarkedLine(string content, string marker, ConsoleColor contentColor, ConsoleColor markerColor)
-        {
-            Console.ForegroundColor = markerColor;
-            Console.Write($"{marker} ");
-            Console.ForegroundColor = contentColor;
             Console.WriteLine(content);
             Console.ResetColor();
             lastLine = content;
@@ -68,13 +48,9 @@ namespace WUIntegrate
         {
             var progressPercent = (int)((double)progress / progressMax * 100);
 
-            if (Sw.IsRunning && progressPercent < 100)
+            if (Sw.IsRunning && progressPercent < 100 && Sw.ElapsedMilliseconds < 100)
             {
-                // Do not update progress bar if it is too soon, this can cause performance loss.
-                if (Sw.ElapsedMilliseconds < 100)
-                {
-                    return;
-                }
+                return;
             }
 
             var emptyChars = new string('-', maxChars - progressPercent);
