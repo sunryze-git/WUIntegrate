@@ -4,7 +4,6 @@
 - [X] Implement the DISM Callback for progress reporting
 - [X] Fix DISM progress reporting callback percentage
 - [X] Add option to integrate to all images in the WIM
-- [ ] Implement create bootable ISO
 - [X] Reduce reliance on 7-Zip for file extraction
 - [X] Improve the console output readability
 - [ ] Add a UI in the future with WPF?

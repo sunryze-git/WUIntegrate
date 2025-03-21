@@ -2,7 +2,7 @@
 {
     public class Locations()
     {
-        public required string SysTemp { get; set; }
+        public required string SysTemp { get; set;}
         public required string WuRoot { get; set; }
         public required string ScanCabExtPath { get; set; }
         public required string? MediumPath { get; set; }

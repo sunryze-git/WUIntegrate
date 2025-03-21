@@ -24,12 +24,35 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <COMReference Include="IMAPI2FS">
+      <WrapperTool>tlbimp</WrapperTool>
+      <VersionMinor>0</VersionMinor>
+      <VersionMajor>1</VersionMajor>
+      <Guid>2c941fd0-975b-59be-a960-9a2a262853a5</Guid>
+      <Lcid>0</Lcid>
+      <Isolated>false</Isolated>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </COMReference>
+    <COMReference Include="IMAPI2">
+      <WrapperTool>tlbimp</WrapperTool>
+      <VersionMinor>0</VersionMinor>
+      <VersionMajor>1</VersionMajor>
+      <Guid>2735412f-7f64-5b0f-8f00-5d77afbe261e</Guid>
+      <Lcid>0</Lcid>
+      <Isolated>false</Isolated>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </COMReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="Setup.ico" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CST.RecursiveExtractor" Version="1.2.34" />
     <PackageReference Include="Microsoft.Dism" Version="3.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
     <PackageReference Include="SevenZipExtractor" Version="1.0.19" />
     <PackageReference Include="System.Collections" Version="4.3.0" />
   </ItemGroup>

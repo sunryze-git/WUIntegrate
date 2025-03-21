@@ -1,47 +1,61 @@
-﻿using DiscUtils.Udf;
+﻿using IMAPI2;
+using DiscUtils.Udf;
 using Microsoft.CST.RecursiveExtractor;
 using Microsoft.Dism;
+using IMAPI2FS;
+using Microsoft.Extensions.Logging;
 
 namespace WUIntegrate;
 
 public class WUIntegrateRoot
 {
     // Flags
-    static readonly bool SkipDism = false;
-    static readonly bool SkipUpdate = false;
+    private static readonly bool SkipDism = false;
+    private static readonly bool SkipUpdate = false;
 
-    private static int WimIndex; // Selected WIM index
-    private static MediumType Medium; // Type of medium we are working with
-    private static WindowsVersion WindowsVersion; // Medium OS version
-    private static Architecture SystemArchitecture; // Medium architecture
-    private static string? ArgumentPath = null;
+    private static int WimIndex;
+    private static MediumType Medium;
+    private static WindowsVersion WindowsVersion;
+    private static Architecture SystemArchitecture;
+    private static string? ArgumentPath;
     private static List<DismImageInfo>? IntegratableImages;
     private static UpdateSystem? updateSystem;
+    private static ILogger? Logger;
+
     public static readonly Locations Directories = new()
     {
         SysTemp = Path.GetTempPath(),
-                WuRoot = Path.Combine(Path.GetTempPath(), "WUIntegrate"),
-                ScanCabExtPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "scancab"),
-                MediumPath = null,
-                DismMountPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "mount"),
-                MediumExtractPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "extract"),
-                DlUpdatesPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
+        WuRoot = Path.Combine(Path.GetTempPath(), "WUIntegrate"),
+        ScanCabExtPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "scancab"),
+        MediumPath = null,
+        DismMountPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "mount"),
+        MediumExtractPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "extract"),
+        DlUpdatesPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
     };
 
     public static void Main(string[] args)
     {
+        Logger = CreateLogger();
+        if (Logger is null)
+        {
+            Helper.ExceptionFactory<NullReferenceException>("Failed to create logger.");
+            return;
+        }
+
         Console.Title = "WUIntegrate";
 
+        ConsoleWriter.WriteLine(Constants.Notices.Startup, ConsoleColor.Cyan);
+
         if (!Helper.IsCurrentUserAdmin())
-            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Yellow);
+        {
+            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Red);
+            return;
+        }
 
         ArgumentPath = args.FirstOrDefault();
-        ArgumentPath = @"C:\Users\Ryze\Downloads\en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96\sources\install.wim";
-
-        ConsoleWriter.WriteLine(Constants.Notices.Startup, ConsoleColor.Yellow);
 
         // Test Arguments
-        if (ArgumentPath == null)
+        if (ArgumentPath is null)
         {
             ConsoleWriter.WriteLine(Constants.Notices.Usage, ConsoleColor.Yellow);
             return;
@@ -66,6 +80,16 @@ public class WUIntegrateRoot
         CleanupPhase();
 
         return;
+    }
+
+    private static ILogger CreateLogger()
+    {
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+        return loggerFactory.CreateLogger("WUIntegrate");
     }
 
     private static void Initialization()
@@ -102,12 +126,7 @@ public class WUIntegrateRoot
         {
             case MediumType.IsoFile:
                 ConsoleWriter.WriteLine("[i] Extracting ISO file", ConsoleColor.Cyan);
-                Task.Run(async () =>
-                {
-                    await ExtractISO(ArgumentPath!);
-                }).Wait();
-                break;
-            case MediumType.WimFile:
+                ExtractISO(ArgumentPath!);
                 break;
             case MediumType.EsdFile:
                 Helper.ExceptionFactory<ArgumentException>("ESD files are not supported.");
@@ -126,33 +145,41 @@ public class WUIntegrateRoot
 
     private static void UpdatePhase()
     {
-        // Start Update System
-        if (!SkipUpdate)
+        if (SkipUpdate)
         {
-            ConsoleWriter.WriteLine("[i] Initializing update downloader", ConsoleColor.Cyan);
-            updateSystem = new();
+            ConsoleWriter.WriteLine("[i] Update system is disabled. Skipping update phase.", ConsoleColor.Red);
+            return;
         }
+
+        if (IntegratableImages is null)
+        {
+            Helper.ExceptionFactory<NullReferenceException>("IntegratableImages is null.");
+            return;
+        }
+
+        ConsoleWriter.WriteLine("[i] Initializing update downloader", ConsoleColor.Cyan);
+        updateSystem = new();
 
         do
         {
             // Current Image
-            var CurrentImage = IntegratableImages!.First();
+            var currentImage = IntegratableImages.First();
 
             // Set Windows Version and Architecture
             ConsoleWriter.WriteLine("[i] Setting Windows architecture and version", ConsoleColor.Cyan);
-            SetWindowsVersion(CurrentImage.ProductVersion.Build, CurrentImage.ProductType);
-            SetArchitecture(CurrentImage.Architecture);
+            SetWindowsVersion(currentImage.ProductVersion.Build, currentImage.ProductType);
+            SetArchitecture(currentImage.Architecture);
 
             // Confirm information
             ConsoleWriter.WriteLine(
                 $"""
-            --------------------
-            Current Image:
-                WIM Index: {CurrentImage.ImageIndex}
-                Windows Image Version: {WindowsVersion}
-                Architecture: {SystemArchitecture}
-            --------------------
-            """
+                --------------------
+                Current Image:
+                    WIM Index: {currentImage.ImageIndex}
+                    Windows Image Version: {WindowsVersion}
+                    Architecture: {SystemArchitecture}
+                --------------------
+                """
             , ConsoleColor.White);
 
             // Mount WIM
@@ -167,7 +194,7 @@ public class WUIntegrateRoot
             {
                 // Get updates for this version
                 ConsoleWriter.WriteLine("[i] Finding latest updates", ConsoleColor.Cyan);
-                updateSystem!.Start(WindowsVersion, SystemArchitecture);
+                updateSystem.Start(WindowsVersion, SystemArchitecture);
 
                 // Integrate updates if specified
                 if (updateSystem.ReadyToIntegrate)
@@ -186,8 +213,8 @@ public class WUIntegrateRoot
             }
 
             // Remove from the list the image we just handled
-            IntegratableImages!.Remove(CurrentImage);
-        } while (IntegratableImages!.Count > 0);
+            IntegratableImages.Remove(currentImage);
+        } while (IntegratableImages.Count > 0);
     }
 
     private static void CleanupPhase()
@@ -203,7 +230,7 @@ public class WUIntegrateRoot
         foreach (var path in Directories.All)
         {
             if (path == Path.GetTempPath()) continue;
-            if (path == null) continue;
+            if (path is null) continue;
 
             if (!Directory.Exists(path))
             {
@@ -214,10 +241,12 @@ public class WUIntegrateRoot
 
     private static void DeleteTempPath()
     {
-        if (Directories.WuRoot != null)
+        if (Directories.WuRoot is not null)
         {
             if (!Directory.Exists(Directories.WuRoot))
+            {
                 return;
+            }
             Directory.Delete(Directories.WuRoot, recursive: true);
         }
     }
@@ -225,11 +254,13 @@ public class WUIntegrateRoot
     private static void TestPath(string path)
     {
         if (Directory.Exists(path))
-            Helper.ExceptionFactory<ArgumentException>(
-                "Path specified is a directory. Directories are not supported."
-            );
+        {
+            Helper.ExceptionFactory<ArgumentException>("Path specified is a directory. Directories are not supported.");
+        }
         if (!File.Exists(path))
+        {
             Helper.ExceptionFactory<FileNotFoundException>("Path specified does not exist.");
+        }
     }
 
     private static void TestSpace(string path)
@@ -239,13 +270,10 @@ public class WUIntegrateRoot
         var FileInfo = new FileInfo(path);
         var DriveInfo = new DriveInfo(DriveRoot);
 
-        var DriveFreeSpace = DriveInfo.AvailableFreeSpace;
-        var FileSize = FileInfo.Length;
-
-        if (DriveFreeSpace < FileSize)
-            Helper.ExceptionFactory<IOException>(
-                "Not enough space on the drive to extract the file."
-            );
+        if (DriveInfo.AvailableFreeSpace < FileInfo.Length)
+        {
+            Helper.ExceptionFactory<IOException>("Not enough space on the drive to extract the file.");
+        }
     }
 
     private static void IdentifyMedium(string path)
@@ -257,13 +285,14 @@ public class WUIntegrateRoot
             ".ESD" => MediumType.EsdFile,
             _ => MediumType.Unknown,
         };
+
         if (Medium == MediumType.IsoFile)
         {
             Directories.MediumPath = Path.Combine(Path.Combine(Directories.MediumExtractPath, "sources"), "install.wim");
             return;
         }
 
-        if (Medium == MediumType.WimFile || Medium == MediumType.EsdFile)
+        if (Medium == MediumType.WimFile)
         {
             Directories.MediumPath = path;
 
@@ -271,9 +300,7 @@ public class WUIntegrateRoot
             var di = new DirectoryInfo(parentPath!);
             if (di.Attributes.HasFlag(FileAttributes.ReadOnly))
             {
-                Helper.ExceptionFactory<UnauthorizedAccessException>(
-                    "Directory of the WIM is read only. This is not supported. Please move the WIM file to a writable directory or drive."
-                );
+                Helper.ExceptionFactory<UnauthorizedAccessException>("Directory of the WIM is read only.");
             }
             return;
         }
@@ -281,7 +308,7 @@ public class WUIntegrateRoot
         Helper.ExceptionFactory<ArgumentException>("The given path is not a valid WIM or ISO file.");
     }
 
-    private static async Task ExtractISO(string path)
+    private static void ExtractISO(string path)
     {
         using var udfStream = new FileStream(path, FileMode.Open, FileAccess.Read);
         using var reader = new UdfReader(udfStream);
@@ -290,10 +317,10 @@ public class WUIntegrateRoot
         var allFiles = root.GetFiles("*", searchOption: SearchOption.AllDirectories);
 
         // Create destination folder structure
-        byte[] buffer = new byte[81920];
-        long totalBytes = allFiles.Sum(x => x.Length);
-        long totalBytesRead = 0;
-        int bytesRead;
+        var buffer = new byte[81920];
+        var totalBytes = allFiles.Sum(x => x.Length);
+        var totalBytesRead = 0;
+        var bytesRead = 0;
 
         foreach (var file in allFiles)
         {
@@ -307,9 +334,9 @@ public class WUIntegrateRoot
 
             while ((bytesRead = sourceFileStream.Read(buffer)) > 0)
             {
-                await destinationFileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                destinationFileStream.Write(buffer, 0, bytesRead);
                 totalBytesRead += bytesRead;
-                int progress = (int)((double)totalBytesRead / totalBytes * 100);
+                var progress = (int)((double)totalBytesRead / totalBytes * 100);
                 ConsoleWriter.WriteProgress(100, progress, 100, "Extracting", ConsoleColor.White);
             }
         }
@@ -324,7 +351,7 @@ public class WUIntegrateRoot
         {
             DismImageInfoCollection ImageInfo = DismApi.GetImageInfo(path);
             IntegratableImages = [];
-            string bar = new('-', 20);
+            var bar = new string('-', 20);
 
             ConsoleWriter.WriteLine(bar, ConsoleColor.Blue);
             foreach (var index in ImageInfo)
@@ -346,16 +373,16 @@ public class WUIntegrateRoot
                     "Choose a WIM index. Enter 0 for all. "
                 , ConsoleColor.Green);
 
-                if (WimIndex == 0) break;
+                if (WimIndex == 0)
+                {
+                    break;
+                }
 
             } while (!ImageInfo.Any(x => x.ImageIndex == WimIndex));
 
             if (WimIndex == 0)
             {
-                foreach (var image in ImageInfo)
-                {
-                    IntegratableImages.Add(image);
-                }
+                IntegratableImages.AddRange(ImageInfo);
                 return;
             }
             else
@@ -409,11 +436,11 @@ public class WUIntegrateRoot
     {
         if ((build >= 19041 && build <= 19045) || (build >= 22621 && build <= 22631))
         {
-            Console.WriteLine("""
+            ConsoleWriter.WriteLine("""
                 WARNING:
                     1904X and 226X1 builds are forced to their latest version.
                     This works, but they will not update if they are end of life.
-                """);
+                """, ConsoleColor.Yellow);
         }
 
         // Server ProductType is ServerNT, EditionID starts with Server
@@ -486,12 +513,11 @@ public class WUIntegrateRoot
     private static void IntegrateUpdateFiles()
     {
         // Use DISM update API to integrate all files within the update folder
-
         var session = DismApi.OpenOfflineSession(Directories.DismMountPath);
 
         var updateFiles = Directory.GetFiles(Directories.DlUpdatesPath);
-        int count = updateFiles.Length;
-        int current = 1;
+        var count = updateFiles.Length;
+        var current = 1;
         foreach (var updateFile in updateFiles)
         {
             ConsoleWriter.WriteLine($"[{current}/{count}] Integrating Update...", ConsoleColor.Cyan);
@@ -539,7 +565,7 @@ public class WUIntegrateRoot
         }
         catch
         {
-            // Ignore
+            throw;
         }
 
         // Delete Temp Path
@@ -550,5 +576,52 @@ public class WUIntegrateRoot
 
 
     // THINGS TO DO LATER
-    private static void CreateBootableImage() { }
+    private static void CreateBootableImage(string sourceFiles, string destinationPath)
+    {
+        if (!Directory.Exists(sourceFiles))
+        {
+            Helper.ExceptionFactory<DirectoryNotFoundException>("Source files directory does not exist.");
+        }
+
+        if (File.Exists(destinationPath))
+        {
+            Helper.ExceptionFactory<IOException>("Destination path is a file.");
+        }
+
+        if (Directory.Exists(destinationPath))
+        {
+            Helper.ExceptionFactory<IOException>("Destination path is a directory.");
+        }
+
+        // Create ISO using the IMAPI API (Thanks COM!)
+        var recorder = new MsftDiscRecorder2();
+        var dataWriter = new MsftWriteEngine2();
+        var imageCreator = new MsftDiscFormat2Data();
+        var fileSystem = new MsftFileSystemImage();
+
+        string sourcePath = sourceFiles;
+        string destinationFile = Path.Combine(destinationPath, "wuintegrate.iso");
+
+        fileSystem.ChooseImageDefaultsForMediaType(IMAPI2FS.IMAPI_MEDIA_PHYSICAL_TYPE.IMAPI_MEDIA_TYPE_DVDPLUSRW);
+        fileSystem.FileSystemsToCreate = FsiFileSystems.FsiFileSystemUDF;
+        fileSystem.Root.AddTree(sourcePath, true);
+
+        var isoImage = fileSystem.CreateResultImage().ImageStream;
+
+        IDiscFormat2Data idf2d = (IDiscFormat2Data)imageCreator;
+
+        idf2d.Recorder = recorder;
+        idf2d.ClientName = "WUIntegrate";
+
+        try
+        {
+            idf2d.Write((IMAPI2.IStream)isoImage);
+        }
+        catch (Exception ex)
+        {
+            Helper.ExceptionFactory<Exception>($"Failed to create ISO: {ex}");
+        }
+
+
+    }
 }

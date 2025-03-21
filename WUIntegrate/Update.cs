@@ -3,6 +3,8 @@ using System.Text;
 using System.Xml;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 
 namespace WUIntegrate
 {
@@ -39,26 +41,10 @@ namespace WUIntegrate
         {
             PackageLookupTable[startValue] = packageName;
         }
-
-        public string? GetFilename(int value)
-        {
-            var keys = PackageLookupTable.Keys;
-
-            foreach (var key in keys)
-            {
-                if (key >= value)
-                {
-                    return PackageLookupTable[key];
-                }
-            }
-
-            return null;
-        }
     }
 
     partial class UpdateSystem
     {
-       
         private const string OFFLINE_CAB = @"https://wsusscn2.cab";
 
         private string? indexXmlPath;
@@ -67,7 +53,7 @@ namespace WUIntegrate
 
         private readonly string cabinetDownloadPath = Path.Combine(WUIntegrateRoot.Directories.WuRoot, "wsusscn2.cab");
 
-        private readonly Dictionary<int, Update> Updates = [];
+        private readonly ConcurrentDictionary<int, Update> Updates = [];
         private readonly LookupTable lookupTable = new();
 
         private WindowsVersion isoVersion;
@@ -96,14 +82,22 @@ namespace WUIntegrate
             ExtractPackageCabinet();
 
             ConsoleWriter.WriteLine("[i] Loading lookup table...", ConsoleColor.Yellow);
-            if (indexXmlPath == null) Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
+            if (indexXmlPath is null)
+            {
+                Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
+                return;
+            }
             LoadLookupTable(indexXmlPath!);
 
             ConsoleWriter.WriteLine("[i] Extracting localization files...", ConsoleColor.Yellow);
             ExtractLocalization();
 
             ConsoleWriter.WriteLine("[i] Loading package.xml...", ConsoleColor.Yellow);
-            if (packageXmlPath == null) Helper.ExceptionFactory<FileNotFoundException>("Package.xml was not detected.");
+            if (packageXmlPath is null)
+            {
+                Helper.ExceptionFactory<FileNotFoundException>("Package.xml was not detected.");
+                return;
+            }
             LoadPackageXml(packageXmlPath!);
 
             ConsoleWriter.WriteLine("[i] Extracting localization files (Defender will make this VERY slow). Please Wait...", ConsoleColor.Yellow);
@@ -145,7 +139,7 @@ namespace WUIntegrate
 
         private void PrintInformation(IEnumerable<Update> customUpdates)
         {
-            string bar = new('-', 20);
+            var bar = new string('-', 20);
             ConsoleWriter.WriteLine($"""
                 You are integrating updates for: {isoVersion}.
 
@@ -165,7 +159,7 @@ namespace WUIntegrate
             }
         }
 
-        private void StartUpdateDownload(IEnumerable<Update> updatesList) {
+        private static void StartUpdateDownload(IEnumerable<Update> updatesList) {
             // Start the download of the updates
             Task.Run(async () =>
             {
@@ -173,16 +167,11 @@ namespace WUIntegrate
             }).Wait();
         }
 
-        private async Task DownloadUpdates(IEnumerable<Update> updatesList)
+        private static async Task DownloadUpdates(IEnumerable<Update> updatesList)
         {
-            List<string> updatesToGet = new(Updates.Count);
-            foreach (var update in updatesList)
-            {
-                if (update.UpdateId != null)
-                {
-                    updatesToGet.Add(update.UpdateId);
-                }
-            }
+            List<string> updatesToGet = [.. updatesList
+                .Where(x => x.UpdateId is null)
+                .Select(x => x.UpdateId)];
 
             if (updatesToGet.Count == 0)
             {
@@ -190,14 +179,14 @@ namespace WUIntegrate
                 return;
             }
 
-            string downloadDir = Path.Combine(WUIntegrateRoot.Directories.DlUpdatesPath);
+            var downloadDir = Path.Combine(WUIntegrateRoot.Directories.DlUpdatesPath);
 
             foreach (var updateId in updatesToGet)
             {
                 var downloadLinks = await SearchUpdateCatalog(updateId);
                 foreach (var link in downloadLinks)
                 {
-                    string downloadPath = Path.Combine(downloadDir, link.FileName);
+                    var downloadPath = Path.Combine(downloadDir, link.FileName);
                     Helper.DownloadFile(link.Url, downloadPath);
                 }
             }
@@ -214,7 +203,7 @@ namespace WUIntegrate
             };
 
             // Convert to JSON format
-            string jsonPost = JsonSerializer.Serialize(updateData, jsonSerializerOptions);
+            var jsonPost = JsonSerializer.Serialize(updateData, jsonSerializerOptions);
             var requestContent = $"updateIDs=[{jsonPost}]";
 
             // Create HTTP client
@@ -249,7 +238,7 @@ namespace WUIntegrate
                     var url = match.Groups[1].Value;
 
                     // Extract filename from URL
-                    string fileName = System.IO.Path.GetFileName(new Uri(url).LocalPath);
+                    var fileName = Path.GetFileName(new Uri(url).LocalPath);
                     if (string.IsNullOrEmpty(fileName))
                     {
                         fileName = $"update_{Guid.NewGuid()}.cab";
@@ -261,8 +250,6 @@ namespace WUIntegrate
                         Url = url,
                         FileName = fileName
                     });
-
-                    Console.WriteLine($"Found download link: {url}");
                 }
             }
 
@@ -290,7 +277,10 @@ namespace WUIntegrate
         private void ExtractPackageCabinet()
         {
             var targetCab = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package.cab");
-            if (!File.Exists(targetCab)) Helper.ExceptionFactory<FileNotFoundException>("Package.CAB was not detected.");
+            if (!File.Exists(targetCab))
+            {
+                Helper.ExceptionFactory<FileNotFoundException>("Package.CAB was not detected.");
+            }
 
             Helper.ExtractFile(targetCab, Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "package"));
 
@@ -301,7 +291,10 @@ namespace WUIntegrate
         {
             var destination = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "localizations");
 
-            if (lookupTable.PackageLookupTable.Count == 0) Helper.ExceptionFactory<Exception>("Lookup table is empty. Unable to continue.");
+            if (lookupTable.PackageLookupTable.Count == 0) 
+            { 
+                Helper.ExceptionFactory<Exception>("Lookup table is empty. Unable to continue."); 
+            }
 
             foreach (var file in Directory.GetFiles(WUIntegrateRoot.Directories.ScanCabExtPath))
             {
@@ -318,19 +311,16 @@ namespace WUIntegrate
 
         private void RemoveUpdatesWithoutKB()
         {
-            var keysToRemove = new List<int>();
+            var updatesToRemove = Updates
+                .Where(x => x.Value.KbNumber is null || x.Value.OsVersion is null)
+                .ToList();
 
-            foreach (var update in Updates)
+            foreach (var key in updatesToRemove)
             {
-                if (update.Value.KbNumber == null || update.Value.OsVersion == null)
+                if (!Updates.TryRemove(key))
                 {
-                    keysToRemove.Add(update.Key);
+                    ConsoleWriter.WriteLine($"[!] Unable to remove update {key}.", ConsoleColor.Red);
                 }
-            }
-
-            foreach (var key in keysToRemove)
-            {
-                Updates.Remove(key);
             }
         }
 
@@ -338,18 +328,27 @@ namespace WUIntegrate
         {
             using var reader = XmlReader.Create(path);
             var lookupXml = XDocument.Load(reader);
-            if (lookupXml.Root == null) return;
+            if (lookupXml.Root is null)
+            {
+                return;
+            }
 
             // Get the first child element children (cablistElements)
             var firstElement = lookupXml.Root.Elements().First();
-            if (firstElement == null) return;
+            if (firstElement is null)
+            {
+                return;
+            }
 
             foreach (var element in firstElement.Elements())
             {
                 var rangeStartAttr = element.Attribute("RANGESTART");
                 var nameAttr = element.Attribute("NAME");
 
-                if (rangeStartAttr == null || nameAttr == null) continue;
+                if (rangeStartAttr is null || nameAttr is null)
+                {
+                    continue;
+                }
 
                 if (int.TryParse(rangeStartAttr.Value, out int rangeStart))
                 {
@@ -401,132 +400,132 @@ namespace WUIntegrate
                 ["ARM64"] = Architecture.ARM64
             };
 
-            if (localizationPath == null) Helper.ExceptionFactory<DirectoryNotFoundException>("Localization path was not detected.");
-            string[] files = Directory.GetFiles(localizationPath!);
+            if (localizationPath is null)
+            {
+                Helper.ExceptionFactory<DirectoryNotFoundException>("Localization path was not detected.");
+            }
+            var files = Directory.GetFiles(localizationPath!);
 
             // Pre-compile the regex patterns for performance
-            Dictionary<WindowsVersion, Regex> compiledOsVersionPatterns = [];
-            foreach (var p in OsVersionPatterns)
-            {
-                compiledOsVersionPatterns.Add(p.Value, new Regex(p.Key, RegexOptions.Compiled));
-            }
+            Dictionary<WindowsVersion, Regex> compiledOsVersionPatterns = OsVersionPatterns
+                .ToDictionary(p => p.Value, p => new Regex(p.Key, RegexOptions.Compiled));
 
-            Dictionary<Architecture, Regex> compiledArchitecturePatterns = [];
-            foreach (var p in ArchitecturePatterns)
-            {
-                compiledArchitecturePatterns.Add(p.Value, new Regex(p.Key, RegexOptions.Compiled));
-            }
+            Dictionary<Architecture, Regex> compiledArchitecturePatterns = ArchitecturePatterns
+                .ToDictionary(p => p.Value, p => new Regex(p.Key, RegexOptions.Compiled));
 
             foreach (string file in files)
             {
-                if (!int.TryParse(Path.GetFileName(file), out int filename)) continue;
-                if (!Updates.ContainsKey(filename)) continue;
+                if (!int.TryParse(Path.GetFileName(file), out int filename) || !Updates.ContainsKey(filename))
+                {
+                    continue;
+                }
 
                 using XmlReader reader = XmlReader.Create(file);
                 XDocument xmlDoc = XDocument.Load(reader);
 
-                if (xmlDoc.Root == null) continue;
+                if (xmlDoc.Root is null)
+                {
+                    continue;
+                }
 
                 var titleElement = xmlDoc.Root.Elements("Title").FirstOrDefault();
-                if (titleElement == null) continue;
+                if (titleElement is null)
+                {
+                    continue;
+                }
 
-                string title = titleElement.Value;
+                var title = titleElement.Value;
 
-                if (title == "Driver" || title.Contains("Office") || title.Contains("SQL")) continue;
+                if (title == "Driver" || title.Contains("Office") || title.Contains("SQL"))
+                {
+                    continue;
+                }
 
-                if (!xmlDoc.Root.Elements("Description").Any()) continue;
+                if (!xmlDoc.Root.Elements("Description").Any())
+                {
+                    continue;
+                }
 
                 // Get the KB number
-                Match match = KbNumberRegex().Match(title);
-                if (!match.Success) continue;
-                string kbNumber = match.Value;
+                var match = KbNumberRegex().Match(title);
+                if (!match.Success)
+                {
+                    continue;
+                }
+                var kbNumber = match.Value;
 
                 // Get OS Version and Architecture
-                WindowsVersion? osVersion = null;
-                Architecture? architecture = null;
+                WindowsVersion osVersion = WindowsVersion.Unknown;
+                Architecture architecture = Architecture.x86;
 
-                foreach (var p in compiledOsVersionPatterns)
+                osVersion = compiledOsVersionPatterns
+                    .FirstOrDefault(p => p.Value.IsMatch(title))
+                    .Key;
+
+                architecture = compiledArchitecturePatterns
+                    .FirstOrDefault(p => p.Value.IsMatch(title))
+                    .Key;
+
+                if (Updates.TryGetValue(filename, out var update))
                 {
-                    match = p.Value.Match(title);
-                    if (match.Success)
-                    {
-                        osVersion = p.Key;
-                        break;
-                    }
-                }
+                    update.KbNumber = kbNumber;
+                    update.OsVersion = osVersion;
+                    update.Architecture = architecture;
 
-                foreach (var p in compiledArchitecturePatterns)
-                {
-                    match = p.Value.Match(title);
-                    if (match.Success)
-                    {
-                        architecture = p.Key;
-                        break;
-                    }
-                    else // if no architecture is specified it is probably x86, this is done in the .NET updates
-                    {
-                        architecture = Architecture.x86;
-                    }
+                    Updates[filename] = update;
                 }
-
-                // Update the dictionary entry
-                var updateObject = Updates[filename];
-                updateObject.KbNumber = kbNumber;
-                updateObject.OsVersion = osVersion;
-                updateObject.Architecture = architecture;
-                Updates[filename] = updateObject;
             }
+
+            GC.Collect();
         }
 
         private void LoadPackageXml(string path)
         {
             using var reader = XmlReader.Create(path);
             var packageXML = XDocument.Load(reader);
-            if (packageXML.Root == null) return;
+            if (packageXML.Root is null) return;
 
-            XElement root = packageXML.Root;
-            XNamespace ns = "http://schemas.microsoft.com/msus/2004/02/OfflineSync";
+            var root = packageXML.Root;
+            var ns = "http://schemas.microsoft.com/msus/2004/02/OfflineSync";
 
             var updatesElement = root.Elements().First().Elements();
 
-            // For each Update in the Updates element
-            foreach (var update in updatesElement)
+            Parallel.ForEach(updatesElement, update =>
             {
-                DateTime? parsedDate = null;
-                if (DateTime.TryParse(update.Attribute("CreationDate")?.Value, out var date))
+                if (!DateTime.TryParse(update.Attribute("CreationDate")?.Value, out var parsedDate))
                 {
-                    parsedDate = date;
+                    return;
                 }
 
                 var revisionIdAttribute = update.Attribute("RevisionId");
-                if (revisionIdAttribute == null) continue;
-
-                int revisionId = Int32.Parse(revisionIdAttribute.Value);
-
-                // Pre-size the list if count is available
-                var supersededBy = update.Elements(ns + "SupersededBy").Elements().ToList();
-                var supersededUpdateIds = new List<string>(supersededBy.Count);
-
-                foreach (var element in supersededBy)
+                if (revisionIdAttribute is null)
                 {
-                    var idAttribute = element.Attribute("Id");
-                    if (idAttribute != null)
-                    {
-                        supersededUpdateIds.Add(idAttribute.Value);
-                    }
+                    return;
                 }
 
-                // Do the same for if there is prerequsites
-                var prerequisites = update.Elements(ns + "Prerequisites").Elements().ToList();
-                var prerequisiteIds = new List<string>(prerequisites.Count);
-
-                foreach (var element in prerequisites)
+                if (!Int32.TryParse(revisionIdAttribute.Value, out var revisionId))
                 {
-                    var pIdAttribute = element.Attribute("Id");
-                    if (pIdAttribute != null)
-                    {
-                        prerequisiteIds.Add(pIdAttribute.Value);
-                    }
+                    return;
+                }
+
+                // Pre-size the list if count is available
+                var supersededBy = update.Elements(XName.Get("SupersededBy", ns)).Elements().ToList();
+                var supersededUpdateIds = supersededBy // 
+                    .Where(x => x.Attribute("Id") is not null)
+                    .Select(x => x.Attribute("Id")!.Value)
+                    .ToList();
+
+                // Do the same for if there is prerequsites
+                var prerequisites = update.Elements(XName.Get("Prerequisites", ns)).Elements().ToList();
+                var prerequisiteIds = prerequisites
+                    .Where(x => x.Attribute("Id") is not null)
+                    .Select(x => x.Attribute("Id")!.Value)
+                    .ToList();
+
+                // Ensure we don't collide
+                if (Updates.ContainsKey(revisionId))
+                {
+                    return;
                 }
 
                 Updates[revisionId] = new Update
@@ -537,24 +536,25 @@ namespace WUIntegrate
                     SupersededBy = supersededUpdateIds,
                     Prerequisites = prerequisiteIds
                 };
-            }
+            });
+
+            GC.Collect();
             ConsoleWriter.WriteLine("[i] Finished loading package.xml.", ConsoleColor.Yellow);
         }
 
         private static int? TryParseInt(string value)
         {
-            return int.TryParse(value, out int result) ? (int?)result : null;
+            return Int32.TryParse(value, out int result) ? (int?)result : null;
         }
 
         private static IEnumerable<Update> GetLatestUpdates(IEnumerable<Update> customUpdates)
         {
             var latestUpdates = customUpdates.ToList();
-
             var updatesToRemove = new HashSet<Update>();
 
             foreach (var update in latestUpdates)
             {
-                if (update.SupersededBy != null)
+                if (update.SupersededBy is not null)
                 {
                     var supersededBy = update.SupersededBy
                         .Select(i => TryParseInt(i))
@@ -564,7 +564,7 @@ namespace WUIntegrate
 
                     foreach (var otherUpdate in latestUpdates)
                     {
-                        if (otherUpdate.RevisionId == null) continue;
+                        if (otherUpdate.RevisionId is null) continue;
                         if (supersededBy.Contains(otherUpdate.RevisionId.Value))
                         {
                             updatesToRemove.Add(update);

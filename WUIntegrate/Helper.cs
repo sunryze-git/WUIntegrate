@@ -1,28 +1,32 @@
-﻿using System.Diagnostics;
-using System.Reflection;
-using System.Security.Principal;
+﻿using System.Security.Principal;
 using SevenZipExtractor;
 
 namespace WUIntegrate
 {
-    class Helper
+    public class Helper
     {
 
         public static void DeleteFile(string fileName)
         {
+            if (!File.Exists(fileName))
+            {
+                return;
+            }
             File.Delete(fileName);
         }
 
         public static void DeleteFolder(string folderName)
         {
             if (!Directory.Exists(folderName))
+            {
                 return;
+            }
             Directory.Delete(folderName, recursive: true);
         }
 
         public static void ExtractFile(string SourcePath, string DestinationPath, string? SpecificFolderName = null)
         {
-            if (SpecificFolderName == null)
+            if (SpecificFolderName is null) // Normal Extraction
             {
                 ConsoleWriter.WriteLine($"[E] Extracting file {SourcePath} to {DestinationPath}", ConsoleColor.Yellow);
                 using ArchiveFile archiveFile = new(SourcePath);
@@ -48,17 +52,22 @@ namespace WUIntegrate
             }
         }
 
-        public static void DownloadFile(string Uri, string DestinationPath)
+        public static void DownloadFile(string Url, string DestinationPath)
         {
-            if (Uri == null)
+            if (Url is null)
+            {
                 ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
+            }
             if (Path.Exists(DestinationPath))
+            {
+                ConsoleWriter.WriteLine($"[W] File {DestinationPath} already exists.", ConsoleColor.Yellow);
                 return;
+            }
 
             Task.Run(async () =>
             {
                 using HttpClient client = new();
-                using HttpResponseMessage response = await client.GetAsync(Uri);
+                using HttpResponseMessage response = await client.GetAsync(Url);
 
                 response.EnsureSuccessStatusCode();
                 using Stream responseStream = await response.Content.ReadAsStreamAsync();
@@ -71,22 +80,24 @@ namespace WUIntegrate
 
                 var totalBytes = response.Content.Headers.ContentLength!;
 
-                const int BufferSize = 81920;
-                byte[] buffer = new byte[BufferSize];
+                var BufferSize = 81920;
+                var buffer = new byte[BufferSize];
 
-                long totalBytesRead = 0;
-                int bytesRead;
+                var totalBytesRead = 0;
+                var bytesRead = 0;
                 while ((bytesRead = await responseStream.ReadAsync(buffer)) > 0)
                 {
                     await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead));
                     totalBytesRead += bytesRead;
 
-                    int progress = (int)((double)totalBytesRead / totalBytes * 100);
+                    var progress = (int)((double)totalBytesRead / totalBytes * 100);
 
                     ConsoleWriter.WriteProgress(100, progress, 100, "Downloading", ConsoleColor.Magenta);
                 }
             })
                 .Wait();
+
+            GC.Collect();
         }
 
         public static bool IsCurrentUserAdmin()
