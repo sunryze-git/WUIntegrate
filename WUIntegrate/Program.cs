@@ -1,9 +1,5 @@
-﻿using IMAPI2;
-using DiscUtils.Udf;
-using Microsoft.CST.RecursiveExtractor;
+﻿using DiscUtils.Udf;
 using Microsoft.Dism;
-using IMAPI2FS;
-using Microsoft.Extensions.Logging;
 
 namespace WUIntegrate;
 
@@ -47,6 +43,7 @@ public class WUIntegrateRoot
         Console.Title = "WUIntegrate";
 
         var bar = new string('-', 5);
+
         Logger.Log(bar + " STARTING LOG " + bar);
         Logger.Msg(Constants.Notices.Startup);
 
@@ -308,7 +305,6 @@ public class WUIntegrateRoot
     {
         using var udfStream = new FileStream(path, FileMode.Open, FileAccess.Read);
         using var reader = new UdfReader(udfStream);
-        var extractor = new Extractor();
         var root = reader.Root;
         var allFiles = root.GetFiles("*", searchOption: SearchOption.AllDirectories);
 
