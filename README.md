@@ -1,6 +1,6 @@
 # WUIntegrate
 
-WUIntegrate is a piece of software that integrates the latest Windows update into a WIM or ISO file.
+WUIntegrate is a piece of software that integrates the latest Windows update into a WIM or ISO file :3
 
 ## Supported image versions
 WUIntegrate supports Windows 7 and newer*.
