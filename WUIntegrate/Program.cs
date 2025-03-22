@@ -5,7 +5,6 @@ namespace WUIntegrate;
 
 public class WUIntegrateRoot
 {
-    // Flags
     private static readonly bool SkipDism = false;
     private static readonly bool SkipUpdate = false;
 
