@@ -28,7 +28,7 @@ namespace WUIntegrate
         {
             if (SpecificFolderName is null) // Normal Extraction
             {
-                ConsoleWriter.WriteLine($"[E] Extracting file {SourcePath} to {DestinationPath}", ConsoleColor.Yellow);
+                Logger.Msg($"Extracting file {SourcePath} to {DestinationPath}");
                 using ArchiveFile archiveFile = new(SourcePath);
                 archiveFile.Extract(DestinationPath);
             }
@@ -54,49 +54,65 @@ namespace WUIntegrate
 
         public static void DownloadFile(string Url, string DestinationPath)
         {
-            if (Url is null)
+            int attempts = 0;
+            int maxRetries = 5;
+            while (attempts < maxRetries)
             {
-                ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
-            }
-            if (Path.Exists(DestinationPath))
-            {
-                ConsoleWriter.WriteLine($"[W] File {DestinationPath} already exists.", ConsoleColor.Yellow);
-                return;
-            }
-
-            Task.Run(async () =>
-            {
-                using HttpClient client = new();
-                using HttpResponseMessage response = await client.GetAsync(Url);
-
-                response.EnsureSuccessStatusCode();
-                using Stream responseStream = await response.Content.ReadAsStreamAsync();
-                using Stream destinationStream = new FileStream(
-                    DestinationPath,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None
-                );
-
-                var totalBytes = response.Content.Headers.ContentLength!;
-
-                var BufferSize = 81920;
-                var buffer = new byte[BufferSize];
-
-                var totalBytesRead = 0;
-                var bytesRead = 0;
-                while ((bytesRead = await responseStream.ReadAsync(buffer)) > 0)
+                try
                 {
-                    await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead));
-                    totalBytesRead += bytesRead;
+                    if (Url is null)
+                    {
+                        ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
+                    }
+                    if (Path.Exists(DestinationPath))
+                    {
+                        Logger.Warn($"File {DestinationPath} already exists.");
+                        return;
+                    }
 
-                    var progress = (int)((double)totalBytesRead / totalBytes * 100);
+                    Task.Run(async () =>
+                    {
+                        using HttpClient client = new();
+                        using HttpResponseMessage response = await client.GetAsync(Url);
 
-                    ConsoleWriter.WriteProgress(100, progress, 100, "Downloading", ConsoleColor.Magenta);
+                        response.EnsureSuccessStatusCode();
+                        using Stream responseStream = await response.Content.ReadAsStreamAsync();
+                        using Stream destinationStream = new FileStream(
+                            DestinationPath,
+                            FileMode.Create,
+                            FileAccess.Write,
+                            FileShare.None
+                        );
+
+                        var totalBytes = response.Content.Headers.ContentLength!;
+
+                        var BufferSize = 81920;
+                        var buffer = new byte[BufferSize];
+
+                        var totalBytesRead = 0;
+                        var bytesRead = 0;
+                        while ((bytesRead = await responseStream.ReadAsync(buffer)) > 0)
+                        {
+                            await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                            totalBytesRead += bytesRead;
+
+                            var progress = (int)((double)totalBytesRead / totalBytes * 100);
+
+                            ConsoleWriter.WriteProgress(100, progress, 100, "Downloading", ConsoleColor.Magenta);
+                        }
+                    })
+                        .Wait();
                 }
-            })
-                .Wait();
-
+                catch (HttpRequestException ex)
+                {
+                    attempts++;
+                    if (attempts >= maxRetries)
+                    {
+                        ExceptionFactory<HttpRequestException>($"Failed to download file after {maxRetries} attempts: {ex.Message}");
+                    }
+                }
+            }
+            
             GC.Collect();
         }
 
@@ -115,6 +131,9 @@ namespace WUIntegrate
             var ex =
                 Activator.CreateInstance(typeof(T), errorMessage) as T
                 ?? throw new InvalidOperationException("Failed to create exception instance.");
+
+            Logger.Crash(ex);
+
             throw ex;
         }
     }

@@ -20,7 +20,6 @@ public class WUIntegrateRoot
     private static string? ArgumentPath;
     private static List<DismImageInfo>? IntegratableImages;
     private static UpdateSystem? updateSystem;
-    private static ILogger? Logger;
 
     public static readonly Locations Directories = new()
     {
@@ -35,20 +34,25 @@ public class WUIntegrateRoot
 
     public static void Main(string[] args)
     {
-        Logger = CreateLogger();
-        if (Logger is null)
+        if (args[1] is not null && Boolean.TryParse(args[1], out var result))
         {
-            Helper.ExceptionFactory<NullReferenceException>("Failed to create logger.");
-            return;
+            Logger.EnableLogging = result;
+            if (result)
+            {
+                Logger.LogFile = Path.Combine(Directories.SysTemp, "wuintegrate.log");
+                Logger.Msg("Logging enabled.");
+            }
         }
 
         Console.Title = "WUIntegrate";
 
-        ConsoleWriter.WriteLine(Constants.Notices.Startup, ConsoleColor.Cyan);
+        var bar = new string('-', 5);
+        Logger.Log(bar + " STARTING LOG " + bar);
+        Logger.Msg(Constants.Notices.Startup);
 
         if (!Helper.IsCurrentUserAdmin())
         {
-            ConsoleWriter.WriteLine(Constants.Notices.Admin, ConsoleColor.Red);
+            Logger.Error(Constants.Notices.Admin);
             return;
         }
 
@@ -57,7 +61,7 @@ public class WUIntegrateRoot
         // Test Arguments
         if (ArgumentPath is null)
         {
-            ConsoleWriter.WriteLine(Constants.Notices.Usage, ConsoleColor.Yellow);
+            Logger.Msg(Constants.Notices.Usage);
             return;
         }
 
@@ -67,7 +71,7 @@ public class WUIntegrateRoot
         // Phase 2: DISM Choice
         if (SkipDism)
         {
-            ConsoleWriter.WriteLine("[i] DISM is disabled. Continuing is impossible.", ConsoleColor.Red);
+            Logger.Error("DISM is disabled. Continuing is impossible.");
             CleanupPhase();
             return;
         }
@@ -79,17 +83,8 @@ public class WUIntegrateRoot
         // Phase 4: Cleanup
         CleanupPhase();
 
+        Logger.Log(bar + " ENDING LOG " + bar);
         return;
-    }
-
-    private static ILogger CreateLogger()
-    {
-        var loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddConsole();
-            builder.SetMinimumLevel(LogLevel.Information);
-        });
-        return loggerFactory.CreateLogger("WUIntegrate");
     }
 
     private static void Initialization()
@@ -103,29 +98,29 @@ public class WUIntegrateRoot
         // Initializing DISM API
         if (!SkipDism)
         {
-            ConsoleWriter.WriteLine("[i] Initializing DISM", ConsoleColor.Cyan);
+            Logger.Msg("Initializing DISM");
             DismApi.Initialize(DismLogLevel.LogErrorsWarningsInfo);
         }
         else
         {
-            ConsoleWriter.WriteLine("[i] DISM disabled!", ConsoleColor.Red);
+            Logger.Warn("DISM is disabled.");
         }
 
         // Create Paths
-        ConsoleWriter.WriteLine("[i] Creating temporary directories", ConsoleColor.Cyan);
+        Logger.Msg("Creating temporary directories");
         CreatePaths();
 
         // Identify Medium
-        ConsoleWriter.WriteLine("[i] Identifying installation medium type", ConsoleColor.Cyan);
+        Logger.Msg("Identifying installation medium type");
         IdentifyMedium(ArgumentPath!);
-        ConsoleWriter.WriteLine($"[i] Detected medium: {Medium}", ConsoleColor.Cyan);
+        Logger.Msg($"Detected medium: {Medium}");
 
 
         // Handle different medium types
         switch (Medium)
         {
             case MediumType.IsoFile:
-                ConsoleWriter.WriteLine("[i] Extracting ISO file", ConsoleColor.Cyan);
+                Logger.Msg("Extracting ISO file");
                 ExtractISO(ArgumentPath!);
                 break;
             case MediumType.EsdFile:
@@ -139,7 +134,7 @@ public class WUIntegrateRoot
 
     private static void DismChoicePhase()
     {
-        ConsoleWriter.WriteLine("[i] Loading WIM", ConsoleColor.Cyan);
+        Logger.Msg("Loading WIM");
         SetWinVersionAndArchitecture(Directories.MediumPath!);
     }
 
@@ -147,7 +142,7 @@ public class WUIntegrateRoot
     {
         if (SkipUpdate)
         {
-            ConsoleWriter.WriteLine("[i] Update system is disabled. Skipping update phase.", ConsoleColor.Red);
+            Logger.Warn("Update system is disabled. Skipping update phase.");
             return;
         }
 
@@ -157,7 +152,7 @@ public class WUIntegrateRoot
             return;
         }
 
-        ConsoleWriter.WriteLine("[i] Initializing update downloader", ConsoleColor.Cyan);
+        Logger.Msg("Initializing update downloader");
         updateSystem = new();
 
         do
@@ -166,7 +161,7 @@ public class WUIntegrateRoot
             var currentImage = IntegratableImages.First();
 
             // Set Windows Version and Architecture
-            ConsoleWriter.WriteLine("[i] Setting Windows architecture and version", ConsoleColor.Cyan);
+            Logger.Msg("Setting Windows architecture and version");
             SetWindowsVersion(currentImage.ProductVersion.Build, currentImage.ProductType);
             SetArchitecture(currentImage.Architecture);
 
@@ -185,7 +180,7 @@ public class WUIntegrateRoot
             // Mount WIM
             if (!SkipDism)
             {
-                ConsoleWriter.WriteLine("[i] Mounting WIM", ConsoleColor.Cyan);
+                Logger.Msg("Mounting WIM");
                 MountWIM();
             }
 
@@ -193,14 +188,14 @@ public class WUIntegrateRoot
             if (!SkipUpdate)
             {
                 // Get updates for this version
-                ConsoleWriter.WriteLine("[i] Finding latest updates", ConsoleColor.Cyan);
+                Logger.Msg("Finding latest updates");
                 updateSystem.Start(WindowsVersion, SystemArchitecture);
 
                 // Integrate updates if specified
                 if (updateSystem.ReadyToIntegrate)
                 {
                     Console.Clear();
-                    ConsoleWriter.WriteLine("[i] Integrating updates. This may take a while.", ConsoleColor.Cyan);
+                    Logger.Msg("Integrating updates. This may take a while.");
                     IntegrateUpdateFiles();
                 }
             }
@@ -208,7 +203,7 @@ public class WUIntegrateRoot
             if (!SkipDism)
             {
                 // Unmount WIM
-                ConsoleWriter.WriteLine("[i] Applying WIM changes", ConsoleColor.Cyan);
+                Logger.Msg("Applying WIM changes");
                 CommitWIM();
             }
 
@@ -220,7 +215,7 @@ public class WUIntegrateRoot
     private static void CleanupPhase()
     {
         // Cleanup
-        ConsoleWriter.WriteLine("[i] Cleaning up", ConsoleColor.Cyan);
+        Logger.Msg("Cleaning up");
         Cleanup();
     }
 
@@ -247,6 +242,7 @@ public class WUIntegrateRoot
             {
                 return;
             }
+            
             Directory.Delete(Directories.WuRoot, recursive: true);
         }
     }
@@ -402,14 +398,14 @@ public class WUIntegrateRoot
         var existingImages = DismApi.GetMountedImages();
         foreach (var image in existingImages)
         {
-            ConsoleWriter.WriteLine($"[!] Existing mounted image detected: {image.MountPath}", ConsoleColor.Red);
+            Logger.Warn($"Existing mounted image detected ({image.MountPath}). Unmounting image.");
             DismApi.UnmountImage(image.MountPath, false, progressCallback: DismCallback);
         }
 
         try
         {
             DismApi.MountImage(Directories.MediumPath!, Directories.DismMountPath, WimIndex, false, progressCallback: DismCallback);
-            ConsoleWriter.WriteLine($"[i] WIM is now mounted to: {Directories.DismMountPath}", ConsoleColor.Yellow);
+            Logger.Msg($"WIM mounted successfully to [{Directories.DismMountPath}].");
         }
         catch (DismException ex)
         {
@@ -436,6 +432,7 @@ public class WUIntegrateRoot
     {
         if ((build >= 19041 && build <= 19045) || (build >= 22621 && build <= 22631))
         {
+            Logger.Log("Enablement package build detected. Forcing Windows 10 22H2.");
             ConsoleWriter.WriteLine("""
                 WARNING:
                     1904X and 226X1 builds are forced to their latest version.
@@ -520,7 +517,7 @@ public class WUIntegrateRoot
         var current = 1;
         foreach (var updateFile in updateFiles)
         {
-            ConsoleWriter.WriteLine($"[{current}/{count}] Integrating Update...", ConsoleColor.Cyan);
+            Logger.Msg($"[{current}/{count}] Integrating Update...");
             try
             {
                 DismApi.AddPackage(session, updateFile, false, false, progressCallback: DismCallback);
@@ -528,7 +525,7 @@ public class WUIntegrateRoot
             }
             catch (DismException ex)
             {
-                ConsoleWriter.WriteLine($"[!] Failed to integrate update: {ex}", ConsoleColor.Magenta);
+                Logger.Error($"Failed to integrate update: {ex.Message}");
             }
             current++;
         }
@@ -591,35 +588,6 @@ public class WUIntegrateRoot
         if (Directory.Exists(destinationPath))
         {
             Helper.ExceptionFactory<IOException>("Destination path is a directory.");
-        }
-
-        // Create ISO using the IMAPI API (Thanks COM!)
-        var recorder = new MsftDiscRecorder2();
-        var dataWriter = new MsftWriteEngine2();
-        var imageCreator = new MsftDiscFormat2Data();
-        var fileSystem = new MsftFileSystemImage();
-
-        string sourcePath = sourceFiles;
-        string destinationFile = Path.Combine(destinationPath, "wuintegrate.iso");
-
-        fileSystem.ChooseImageDefaultsForMediaType(IMAPI2FS.IMAPI_MEDIA_PHYSICAL_TYPE.IMAPI_MEDIA_TYPE_DVDPLUSRW);
-        fileSystem.FileSystemsToCreate = FsiFileSystems.FsiFileSystemUDF;
-        fileSystem.Root.AddTree(sourcePath, true);
-
-        var isoImage = fileSystem.CreateResultImage().ImageStream;
-
-        IDiscFormat2Data idf2d = (IDiscFormat2Data)imageCreator;
-
-        idf2d.Recorder = recorder;
-        idf2d.ClientName = "WUIntegrate";
-
-        try
-        {
-            idf2d.Write((IMAPI2.IStream)isoImage);
-        }
-        catch (Exception ex)
-        {
-            Helper.ExceptionFactory<Exception>($"Failed to create ISO: {ex}");
         }
 
 

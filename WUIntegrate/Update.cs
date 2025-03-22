@@ -72,16 +72,16 @@ namespace WUIntegrate
         public UpdateSystem()
         {
 
-            ConsoleWriter.WriteLine("[i] Downloading offline update scan cabinet...", ConsoleColor.Yellow);
+            Logger.Msg("Downloading offline update scan cabinet file.");
             DownloadOfflineCab();
 
-            ConsoleWriter.WriteLine("[i] Extracting offline update scan cabinet...", ConsoleColor.Yellow);
+            Logger.Msg("Extracting offline update scan cabinet file.");
             ExtractScanCabinet();
 
-            ConsoleWriter.WriteLine("[i] Extracting package cabinet...", ConsoleColor.Yellow);
+            Logger.Msg("Extracting update package cabinet.");
             ExtractPackageCabinet();
 
-            ConsoleWriter.WriteLine("[i] Loading lookup table...", ConsoleColor.Yellow);
+            Logger.Msg("Loading package lookup table.");
             if (indexXmlPath is null)
             {
                 Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
@@ -89,10 +89,10 @@ namespace WUIntegrate
             }
             LoadLookupTable(indexXmlPath!);
 
-            ConsoleWriter.WriteLine("[i] Extracting localization files...", ConsoleColor.Yellow);
+            Logger.Msg("Extracting package localization files.");
             ExtractLocalization();
 
-            ConsoleWriter.WriteLine("[i] Loading package.xml...", ConsoleColor.Yellow);
+            Logger.Msg("Loading package XML.");
             if (packageXmlPath is null)
             {
                 Helper.ExceptionFactory<FileNotFoundException>("Package.xml was not detected.");
@@ -100,13 +100,13 @@ namespace WUIntegrate
             }
             LoadPackageXml(packageXmlPath!);
 
-            ConsoleWriter.WriteLine("[i] Extracting localization files (Defender will make this VERY slow). Please Wait...", ConsoleColor.Yellow);
+            Logger.Msg("Loading localization files.");
             LoadPackageLocalization();
 
-            ConsoleWriter.WriteLine("[i] Performing cleanup on download files...", ConsoleColor.Yellow);
+            Logger.Msg("Cleaning up downloaded files.");
             Cleanup();
 
-            ConsoleWriter.WriteLine("[i] Removing updates without KB number or OS version...", ConsoleColor.Yellow);
+            Logger.Msg("Removing bad updates.");
             RemoveUpdatesWithoutKB();
         }
 
@@ -118,7 +118,7 @@ namespace WUIntegrate
             // Get updates for this version
             IEnumerable<Update> SpecificVersionUpdates = Updates.Values.Where(u => u.OsVersion == windowsVersion).Intersect(Updates.Values.Where(u => u.Architecture == architecture));
 
-            ConsoleWriter.WriteLine("[i] Finding the latest updates...", ConsoleColor.Yellow);
+            Logger.Msg("Finding the latest updates...");
             var latestUpdates = GetLatestUpdates([.. SpecificVersionUpdates]);
 
             PrintInformation(latestUpdates);
@@ -130,15 +130,16 @@ namespace WUIntegrate
             }
             else
             {
-                ConsoleWriter.WriteLine("[!] Updates will not be integrated.", ConsoleColor.Red);
+                Logger.Warn("Updates will not be integrated.");
                 ReadyToIntegrate = false;
             }
 
-            ConsoleWriter.WriteLine("[i] Update System has finished operations.", ConsoleColor.Yellow);
+            Logger.Msg("Update system has finished operations.");
         }
 
         private void PrintInformation(IEnumerable<Update> customUpdates)
         {
+            Logger.Log($"Integrating updates for: {isoVersion}, Count: {customUpdates.Count()}.");
             var bar = new string('-', 20);
             ConsoleWriter.WriteLine($"""
                 You are integrating updates for: {isoVersion}.
@@ -175,7 +176,7 @@ namespace WUIntegrate
 
             if (updatesToGet.Count == 0)
             {
-                ConsoleWriter.WriteLine("[i] No updates to download.", ConsoleColor.Yellow);
+                Logger.Msg("No updates to download.");
                 return;
             }
 
@@ -319,7 +320,7 @@ namespace WUIntegrate
             {
                 if (!Updates.TryRemove(key))
                 {
-                    ConsoleWriter.WriteLine($"[!] Unable to remove update {key}.", ConsoleColor.Red);
+                    Logger.Warn($"Unable to remove update {key}");
                 }
             }
         }
@@ -355,7 +356,7 @@ namespace WUIntegrate
                     lookupTable.Add(rangeStart, nameAttr.Value);
                 }
             }
-            ConsoleWriter.WriteLine("[i] Loaded update lookup table.", ConsoleColor.Yellow);
+            Logger.Msg("Loaded update lookup table.");
         }
 
         private void LoadPackageLocalization()
@@ -539,7 +540,7 @@ namespace WUIntegrate
             });
 
             GC.Collect();
-            ConsoleWriter.WriteLine("[i] Finished loading package.xml.", ConsoleColor.Yellow);
+            Logger.Msg("Finished loading package.XML.");
         }
 
         private static int? TryParseInt(string value)

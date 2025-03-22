@@ -1,4 +1,5 @@
 ﻿namespace WUIntegrate;
+
 enum Architecture
 {
     x64,
