@@ -256,14 +256,29 @@ public class WUIntegrateRoot
 
     private static void DeleteTempPath()
     {
-        if (Directories.WuRoot is not null)
+        string[] SafetyDirs =
         {
-            if (!Directory.Exists(Directories.WuRoot))
+            Environment.SpecialFolder.MyDocuments.ToString(),
+            Environment.SpecialFolder.MyMusic.ToString(),
+            Environment.SpecialFolder.MyPictures.ToString(),
+            Environment.SpecialFolder.MyVideos.ToString(),
+            Environment.SpecialFolder.DesktopDirectory.ToString(),
+            Environment.SpecialFolder.Windows.ToString(),
+            Path.Combine(Environment.SpecialFolder.UserProfile.ToString(), "Downloads"),
+        };
+
+        var allDirs = Directories.All.Where(x => x != Path.GetTempPath());
+        
+        // emergency check to not delete system directories
+        allDirs = allDirs.Where(x => !SafetyDirs.Contains(x));
+
+        foreach (var dir in allDirs)
+        {
+            if (Directory.Exists(dir))
             {
-                return;
+                Logger.Log($"Cleaning up temporary directory: {dir}");
+                Directory.Delete(dir, recursive: true);
             }
-            
-            Directory.Delete(Directories.WuRoot, recursive: true);
         }
     }
 
@@ -587,7 +602,7 @@ public class WUIntegrateRoot
         }
         catch
         {
-            throw;
+            Logger.Error("Unable to close DISM mountpoints.");
         }
 
         // Delete Temp Path
