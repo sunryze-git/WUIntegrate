@@ -30,35 +30,43 @@ public class WUIntegrateRoot
 
     public static void Main(string[] args)
     {
-        if (args[1] is not null && Boolean.TryParse(args[1], out var result))
+        Console.Title = "WUIntegrate";
+
+        var imagePath = args.GetValue(0);
+        var logBool = args.GetValue(1);
+        if (imagePath is null)
         {
-            Logger.EnableLogging = result;
-            if (result)
+            Console.WriteLine("Usage: WUIntegrate.exe (wim / iso path) OPTIONAL: [log boolean]");
+            return;
+        }
+        ArgumentPath = imagePath.ToString();
+
+        if (logBool is null) // if not specified
+        {
+            Logger.EnableLogging = true;
+            Logger.LogFile = Path.Combine(Directories.SysTemp, "wuintegrate.log");
+            Logger.Msg("Logging enabled.");
+        }
+        else // if specified
+        {
+            if (bool.TryParse(logBool.ToString(), out var result))
             {
-                Logger.LogFile = Path.Combine(Directories.SysTemp, "wuintegrate.log");
-                Logger.Msg("Logging enabled.");
+                Logger.EnableLogging = result;
+                if (result)
+                {
+                    Logger.LogFile = Path.Combine(Directories.SysTemp, "wuintegrate.log");
+                    Logger.Msg("Logging enabled.");
+                }
             }
         }
 
-        Console.Title = "WUIntegrate";
-
         var bar = new string('-', 5);
-
         Logger.Log(bar + " STARTING LOG " + bar);
         Logger.Msg(Constants.Notices.Startup);
 
         if (!Helper.IsCurrentUserAdmin())
         {
             Logger.Error(Constants.Notices.Admin);
-            return;
-        }
-
-        ArgumentPath = args.FirstOrDefault();
-
-        // Test Arguments
-        if (ArgumentPath is null)
-        {
-            Logger.Msg(Constants.Notices.Usage);
             return;
         }
 
@@ -253,6 +261,12 @@ public class WUIntegrateRoot
         if (!File.Exists(path))
         {
             Helper.ExceptionFactory<FileNotFoundException>("Path specified does not exist.");
+        }
+
+        // Check if this is a relative path, and if it is, convert to fullpath
+        if (!Path.IsPathRooted(path))
+        {
+            ArgumentPath = Path.GetFullPath(path);
         }
     }
 
