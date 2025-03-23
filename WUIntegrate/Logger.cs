@@ -36,7 +36,7 @@ namespace WUIntegrate
         public static void Msg(string message)
         {
             var logMsg = $"{LogTime} | [Info] | {message}";
-            ConsoleWriter.WriteLine(logMsg, ConsoleColor.White);
+            ConsoleWriter.WriteLine(logMsg, ConsoleColor.Cyan);
             WriteToLog(logMsg);
         }
 
@@ -75,7 +75,7 @@ namespace WUIntegrate
                     SOURCE: {ex.Source}
                     STACKTRACE: {ex.StackTrace}
                 """;
-            ConsoleWriter.WriteLine(logMsg, ConsoleColor.Red);
+            ConsoleWriter.WriteLine(logMsg, ConsoleColor.Magenta);
             WriteToLog(logMsg);
         }
 

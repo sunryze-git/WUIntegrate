@@ -220,16 +220,21 @@ public class WUIntegrateRoot
     private static void CleanupPhase()
     {
         // Cleanup
-        Logger.Msg(
-            $"""
-            Operatons have completed. You can find the extracted, updated ISO here:
+        switch (Medium)
+        {
+            case MediumType.IsoFile:
+                Logger.Msg(
+                    $"""
+                    Operations have completed. ISO rebuilding will be added in a future release.
 
-            {Directories.MediumExtractPath}
-
-            ISO rebuilding will be added in a future release.
-
-            Bye Bye :3
-            """);
+                    You can find the extracted files in:
+                        {Directories.MediumExtractPath}
+                    """);
+                break;
+            default:
+                Logger.Msg("Operations have completed. Your WIM file has been updated.");
+                break;
+        }
 
         Cleanup();
     }
