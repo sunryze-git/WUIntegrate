@@ -220,7 +220,17 @@ public class WUIntegrateRoot
     private static void CleanupPhase()
     {
         // Cleanup
-        Logger.Msg("Cleaning up");
+        Logger.Msg(
+            $"""
+            Operatons have completed. You can find the extracted, updated ISO here:
+
+            {Directories.MediumExtractPath}
+
+            ISO rebuilding will be added in a future release.
+
+            Bye Bye :3
+            """);
+
         Cleanup();
     }
 

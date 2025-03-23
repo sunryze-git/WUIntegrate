@@ -6,8 +6,19 @@ namespace WUIntegrate
     {
         private static string lastLine = string.Empty;
         private static readonly Stopwatch Sw = new();
+
+        private static void EnsurePosition()
+        {
+            // ensure the console cursor is on a blank line and all the way to the left
+            if (Console.CursorLeft != 0)
+            {
+                Console.CursorLeft = 0;
+                Console.CursorTop++;
+            }
+        }
         public static void Write(string content, ConsoleColor color)
         {
+            EnsurePosition();
             Console.ForegroundColor = color;
             Console.Write(content);
             Console.ResetColor();
@@ -16,6 +27,7 @@ namespace WUIntegrate
 
         public static void WriteLine(string content, ConsoleColor color)
         {
+            EnsurePosition();
             Console.ForegroundColor = color;
             Console.WriteLine(content);
             Console.ResetColor();
