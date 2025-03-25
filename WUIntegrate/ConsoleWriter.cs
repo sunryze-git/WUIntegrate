@@ -13,7 +13,6 @@ namespace WUIntegrate
             if (Console.CursorLeft != 0)
             {
                 Console.CursorLeft = 0;
-                Console.CursorTop++;
             }
         }
         public static void Write(string content, ConsoleColor color)
@@ -39,8 +38,7 @@ namespace WUIntegrate
             Console.ForegroundColor = color;
             Console.Write(content + " (Y/N) : ");
             char response = Char.ToUpper(Console.ReadKey().KeyChar);
-            Console.CursorLeft = 0;
-            Console.CursorTop++;
+            Console.Write('\n');
             Console.ResetColor();
             return response == 'Y';
         }
@@ -50,8 +48,7 @@ namespace WUIntegrate
             Console.ForegroundColor = color;
             Console.Write(content + ": ");
             string? input = Console.ReadLine();
-            Console.CursorLeft = 0;
-            Console.CursorTop++;
+            Console.Write('\n');
             Console.ResetColor();
             return int.Parse(input ?? "0");
         }
