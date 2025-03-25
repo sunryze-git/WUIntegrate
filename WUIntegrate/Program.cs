@@ -21,18 +21,13 @@ public class WUIntegrateRoot
         DlUpdatesPath = Path.Combine(Path.GetTempPath(), "WUIntegrate", "updates")
     };
 
-    public static void Main(string[] args)
+    public static void Main()
     {
         Console.Title = "WUIntegrate";
         CreatePaths();
         StartLogging();
 
-        var inputPath = GetInputPath(args);
-        if (inputPath == string.Empty)
-        {
-            Logger.Error(Constants.Notices.Usage);
-            return;
-        }
+        Logger.Msg(Constants.Notices.Startup);
 
         if (!IsAdmin)
         {
@@ -41,8 +36,18 @@ public class WUIntegrateRoot
         }
 
         // Test Path
-        TestPathValidity(inputPath);
-        inputPath = Path.GetFullPath(inputPath);
+        string inputPath;
+        bool pathIsValid;
+        do
+        {
+            inputPath = ConsoleWriter.PromptForPath(ConsoleColor.Green, "Paste the path to the WIM or ISO file");
+            pathIsValid = TestPathValidity(inputPath);
+            if (!pathIsValid)
+            {
+                Logger.Error("Invalid path specified.");
+            }
+
+        } while (!pathIsValid);
 
         // Test Space
         TestDriveSpace(inputPath);
@@ -89,29 +94,30 @@ public class WUIntegrateRoot
         }
 
         // Phase 4: Cleanup
-        switch (mediumType)
+        if (mediumType == MediumType.IsoFile)
         {
-            case MediumType.IsoFile:
-                Logger.Msg(
-                    $"""
-                    Operations have completed. ISO rebuilding will be added in a future release.
-                    You can find the extracted files in:
-                        {Directories.MediumExtractPath}
-                    """);
-                break;
-            default:
-                Logger.Msg("Operations have completed. Your WIM file has been updated.");
-                break;
+            Logger.Msg(
+                $"""
+                Operations have completed. ISO rebuilding will be added in a future release.
+                You can find the extracted files in:
+                    {Directories.MediumExtractPath}
+                """);
+
+            if (ConsoleWriter.ChoiceYesNo("Would you like to move the extracted files to a different location?", ConsoleColor.Green))
+            {
+                var destPath = ConsoleWriter.PromptForPath(ConsoleColor.Green, "Enter the destination path");
+                Helper.MoveFolder(Directories.MediumExtractPath, destPath);
+            }
         }
+        else
+        {
+            Logger.Msg("Operations have completed. Your WIM file has been updated.");
+        }
+
         Cleanup();
 
         EndLogging();
         return;
-    }
-
-    private static string GetInputPath(string[] args)
-    {
-        return args.Length > 0 ? args[0] : string.Empty;
     }
 
     private static void StartLogging()
@@ -149,9 +155,15 @@ public class WUIntegrateRoot
             }
 
             int index = 0;
+            int greatestInt = images.Max(x => x.ImageIndex);
             do
             {
                 index = ConsoleWriter.PromptInt("Choose a WIM index, or enter 0 for all", ConsoleColor.Green);
+
+                if (index == -1 || index > greatestInt)
+                {
+                    Logger.Warn("Invalid input. Please enter a valid WIM index.");
+                }
 
                 if (index == 0)
                 {
@@ -264,16 +276,21 @@ public class WUIntegrateRoot
         }
     }
 
-    private static void TestPathValidity(string path)
+    private static bool TestPathValidity(string path)
     {
         if (Directory.Exists(path))
         {
-            Helper.ExceptionFactory<ArgumentException>("Path specified is a directory. Directories are not supported.");
+            return false;
         }
         if (!File.Exists(path))
         {
-            Helper.ExceptionFactory<FileNotFoundException>("Path specified does not exist.");
+            return false;
         }
+        if (Path.GetExtension(path).ToUpper() is not ".WIM" or ".ISO" or ".ESD")
+        {
+            return false;
+        }
+        return true;
     }
 
     private static void TestDriveSpace(string path)

@@ -15,42 +15,78 @@ namespace WUIntegrate
                 Console.CursorLeft = 0;
             }
         }
+
+        private static void SetColor(ConsoleColor color)
+        {
+            if (Console.ForegroundColor != color)
+            {
+                Console.ForegroundColor = color;
+            }
+        }
+
+        private static void ResetColor()
+        {
+            if (Console.ForegroundColor != ConsoleColor.Gray)
+            {
+                Console.ResetColor();
+            }
+        }
+
         public static void Write(string content, ConsoleColor color)
         {
             EnsurePosition();
-            Console.ForegroundColor = color;
+            SetColor(color);
             Console.Write(content);
-            Console.ResetColor();
+            ResetColor();
             lastLine = content;
         }
 
         public static void WriteLine(string content, ConsoleColor color)
         {
             EnsurePosition();
-            Console.ForegroundColor = color;
+            SetColor(color);
             Console.WriteLine(content);
-            Console.ResetColor();
+            ResetColor();
             lastLine = content;
         }
 
         public static bool ChoiceYesNo(string content, ConsoleColor color)
         {
-            Console.ForegroundColor = color;
+            SetColor(color);
+
             Console.Write(content + " (Y/N) : ");
             char response = Char.ToUpper(Console.ReadKey().KeyChar);
+
             Console.Write('\n');
-            Console.ResetColor();
+            ResetColor();
             return response == 'Y';
         }
 
         public static int PromptInt(string content, ConsoleColor color)
         {
-            Console.ForegroundColor = color;
+            SetColor(color);
+
             Console.Write(content + ": ");
             string? input = Console.ReadLine();
+
             Console.Write('\n');
-            Console.ResetColor();
-            return int.Parse(input ?? "0");
+            ResetColor();
+            return int.TryParse(input, out int value) ? value : -1;
+        }
+
+        public static string PromptForPath(ConsoleColor color, string content = "Please enter in a path")
+        {
+            SetColor(color);
+
+            Console.Write(content + ": ");
+            string? input = Console.ReadLine();
+
+            // Remove quotes
+            input = input?.Trim('"');
+
+            Console.Write('\n');
+            ResetColor();
+            return input ?? string.Empty;
         }
 
         public static void WriteProgress(int maxChars, int progress, int progressMax, string message, ConsoleColor barColor)
@@ -64,20 +100,16 @@ namespace WUIntegrate
 
             var emptyChars = new string('-', maxChars - progressPercent);
             var filledChars = new string('#', progressPercent);
-
             var progressBar = $"|{filledChars}{emptyChars}| {progressPercent}% {message}";
 
             // Save time
-            if (Console.ForegroundColor != barColor)
-            {
-                Console.ForegroundColor = barColor;
-            }
+            SetColor(barColor);
 
             // Set cursor down when we reach 100%.
             if (progressPercent >= progressMax)
             {
-                Console.CursorTop++;
-                Console.CursorLeft = 0;
+                Console.Write('\n');
+                ResetColor();
             }
 
             // Compare last line to the new constructed line
@@ -88,24 +120,20 @@ namespace WUIntegrate
             lastLine = progressBar;
 
             // Write the progress bar ensuring each character has the correct color.
-            Console.CursorLeft = 0;
             Write(progressBar, barColor);
 
-            if (!Sw.IsRunning)
-            {
-                Sw.Start();
-            }
-            else
-            {
-                Sw.Restart();
-            }
+            Sw.Restart(); // this can also start the stopwatch
         }
 
         public static void ClearLine()
         {
-            Console.CursorLeft = 0;
-            Console.Write(new string(' ', Console.WindowWidth - 1));
-            Console.CursorLeft = 0;
+            if (lastLine != null)
+            {
+                Console.CursorLeft = 0;
+                Console.Write(new string(' ', lastLine.Length));
+                Console.CursorLeft = 0;
+                lastLine = string.Empty;
+            }
         }
     }
 }

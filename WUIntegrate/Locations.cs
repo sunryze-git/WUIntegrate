@@ -15,7 +15,7 @@
             {
                 yield return WuRoot;
                 yield return ScanCabExtPath;
-                yield return MediumPath!;
+                yield return MediumPath;
                 yield return DismMountPath;
                 yield return MediumExtractPath;
                 yield return DlUpdatesPath;

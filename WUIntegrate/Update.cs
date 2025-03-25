@@ -81,13 +81,13 @@ namespace WUIntegrate
             Logger.Msg("Extracting update package cabinet.");
             ExtractPackageCabinet();
 
-            Logger.Msg("Loading package lookup table.");
-            if (indexXmlPath is null)
-            {
-                Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
-                return;
-            }
-            LoadLookupTable(indexXmlPath!);
+            //Logger.Msg("Loading package lookup table.");
+            //if (indexXmlPath is null)
+            //{
+            //    Helper.ExceptionFactory<FileNotFoundException>("Index.xml was not detected.");
+            //    return;
+            //}
+            //LoadLookupTable(indexXmlPath!);
 
             Logger.Msg("Extracting package localization files.");
             ExtractLocalization();
@@ -289,11 +289,6 @@ namespace WUIntegrate
         private void ExtractLocalization()
         {
             var destination = Path.Combine(WUIntegrateRoot.Directories.ScanCabExtPath, "localizations");
-
-            if (lookupTable.PackageLookupTable.Count == 0) 
-            { 
-                Helper.ExceptionFactory<Exception>("Lookup table is empty. Unable to continue."); 
-            }
 
             foreach (var file in Directory.GetFiles(WUIntegrateRoot.Directories.ScanCabExtPath))
             {

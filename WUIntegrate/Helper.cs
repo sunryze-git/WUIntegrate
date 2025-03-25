@@ -1,7 +1,9 @@
 ﻿using System.Runtime.InteropServices;
 using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 using SevenZipExtractor;
-using Vanara;
+using Vanara.PInvoke;
+using Vanara.RunTimeLib;
 
 namespace WUIntegrate
 {
@@ -26,6 +28,23 @@ namespace WUIntegrate
             Directory.Delete(folderName, recursive: true);
         }
 
+        public static void MoveFolder(string source, string dest)
+        {
+            if (!Directory.Exists(source))
+            {
+                return;
+            }
+
+            if (!Directory.Exists(dest))
+            {
+                Directory.CreateDirectory(dest);
+            }
+
+            Logger.Msg($"Moving folder from {source} to {dest}");
+            Directory.Move(source, dest);
+            Logger.Msg($"Moved folder from {source} to {dest}");
+        }
+
         public static void ExtractFile(string SourcePath, string DestinationPath, string? SpecificFolderName = null)
         {
             if (SpecificFolderName is null) // Normal Extraction
@@ -43,14 +62,13 @@ namespace WUIntegrate
                 {
                     if (entry.FileName.StartsWith(SpecificFolderName, StringComparison.OrdinalIgnoreCase))
                     {
-                        string targetFullPath = Path.Combine(DestinationPath, entry.FileName);
-                        return targetFullPath;
+                        return Path.Combine(DestinationPath, entry.FileName);
                     }
                     return null;
-                }, DestinationPath);
+                }, 
+                DestinationPath);
             }
         }
-
         public static void DownloadFile(string Url, string DestinationPath)
         {
             int attempts = 0;
