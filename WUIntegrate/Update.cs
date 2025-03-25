@@ -17,8 +17,8 @@ namespace WUIntegrate
         public string? KbNumber { get; set; }
         public WindowsVersion? OsVersion { get; set; }
         public Architecture? Architecture { get; set; }
-        public List<string>? SupersededBy { get; set; }
-        public List<string>? Prerequisites { get; set; }
+        public IEnumerable<string>? SupersededBy { get; set; }
+        public IEnumerable<string>? Prerequisites { get; set; }
     };
 
     struct DownloadLink
@@ -115,11 +115,9 @@ namespace WUIntegrate
             isoVersion = windowsVersion;
             isoArchitecture = architecture;
 
-            // Get updates for this version
-            IEnumerable<Update> SpecificVersionUpdates = Updates.Values.Where(u => u.OsVersion == windowsVersion).Intersect(Updates.Values.Where(u => u.Architecture == architecture));
-
             Logger.Msg("Finding the latest updates...");
-            var latestUpdates = GetLatestUpdates([.. SpecificVersionUpdates]);
+            var latestUpdates = GetLatestUpdates(Updates.Values
+                .Where(u => u.OsVersion == windowsVersion && u.Architecture == architecture));
 
             PrintInformation(latestUpdates);
 
@@ -171,7 +169,7 @@ namespace WUIntegrate
         private static async Task DownloadUpdates(IEnumerable<Update> updatesList)
         {
             List<string> updatesToGet = [.. updatesList
-                .Where(x => x.UpdateId is null)
+                .Where(x => x.UpdateId is not null)
                 .Select(x => x.UpdateId)];
 
             if (updatesToGet.Count == 0)
@@ -313,8 +311,7 @@ namespace WUIntegrate
         private void RemoveUpdatesWithoutKB()
         {
             var updatesToRemove = Updates
-                .Where(x => x.Value.KbNumber is null || x.Value.OsVersion is null)
-                .ToList();
+                .Where(x => x.Value.KbNumber is null || x.Value.OsVersion is null);
 
             foreach (var key in updatesToRemove)
             {
@@ -510,18 +507,16 @@ namespace WUIntegrate
                 }
 
                 // Pre-size the list if count is available
-                var supersededBy = update.Elements(XName.Get("SupersededBy", ns)).Elements().ToList();
+                var supersededBy = update.Elements(XName.Get("SupersededBy", ns)).Elements();
                 var supersededUpdateIds = supersededBy // 
                     .Where(x => x.Attribute("Id") is not null)
-                    .Select(x => x.Attribute("Id")!.Value)
-                    .ToList();
+                    .Select(x => x.Attribute("Id")!.Value);
 
                 // Do the same for if there is prerequsites
-                var prerequisites = update.Elements(XName.Get("Prerequisites", ns)).Elements().ToList();
+                var prerequisites = update.Elements(XName.Get("Prerequisites", ns)).Elements();
                 var prerequisiteIds = prerequisites
                     .Where(x => x.Attribute("Id") is not null)
-                    .Select(x => x.Attribute("Id")!.Value)
-                    .ToList();
+                    .Select(x => x.Attribute("Id")!.Value);
 
                 // Ensure we don't collide
                 if (Updates.ContainsKey(revisionId))
@@ -550,20 +545,18 @@ namespace WUIntegrate
 
         private static IEnumerable<Update> GetLatestUpdates(IEnumerable<Update> customUpdates)
         {
-            var latestUpdates = customUpdates.ToList();
             var updatesToRemove = new HashSet<Update>();
 
-            foreach (var update in latestUpdates)
+            foreach (var update in customUpdates)
             {
                 if (update.SupersededBy is not null)
                 {
                     var supersededBy = update.SupersededBy
                         .Select(i => TryParseInt(i))
                         .Where(id => id.HasValue)
-                        .Select(id => id!.Value)
-                        .ToList();
+                        .Select(id => id!.Value);
 
-                    foreach (var otherUpdate in latestUpdates)
+                    foreach (var otherUpdate in customUpdates)
                     {
                         if (otherUpdate.RevisionId is null) continue;
                         if (supersededBy.Contains(otherUpdate.RevisionId.Value))
@@ -575,7 +568,7 @@ namespace WUIntegrate
                 }
             }
 
-            return latestUpdates.Where(update => !updatesToRemove.Contains(update));
+            return customUpdates.Where(update => !updatesToRemove.Contains(update));
         }
 
     }

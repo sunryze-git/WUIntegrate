@@ -52,6 +52,7 @@
     <PackageReference Include="DiscUtils.Udf" Version="0.16.13" />
     <PackageReference Include="Microsoft.Dism" Version="3.3.0" />
     <PackageReference Include="SevenZipExtractor" Version="1.0.19" />
+    <PackageReference Include="Vanara.PInvoke.Cabinet" Version="4.1.1" />
   </ItemGroup>
 
 </Project>

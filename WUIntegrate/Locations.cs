@@ -2,10 +2,9 @@
 {
     public class Locations()
     {
-        public required string SysTemp { get; set;}
         public required string WuRoot { get; set; }
         public required string ScanCabExtPath { get; set; }
-        public required string? MediumPath { get; set; }
+        public required string MediumPath { get; set; }
         public required string DismMountPath { get; set; }
         public required string MediumExtractPath { get; set; }
         public required string DlUpdatesPath { get; set; }
@@ -14,7 +13,6 @@
         {
             get
             {
-                yield return SysTemp;
                 yield return WuRoot;
                 yield return ScanCabExtPath;
                 yield return MediumPath!;

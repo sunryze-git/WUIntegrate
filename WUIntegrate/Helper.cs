@@ -1,5 +1,7 @@
-﻿using System.Security.Principal;
+﻿using System.Runtime.InteropServices;
+using System.Security.Principal;
 using SevenZipExtractor;
+using Vanara;
 
 namespace WUIntegrate
 {
@@ -36,13 +38,10 @@ namespace WUIntegrate
             {
                 // Determine subfolders as well for the specific folder
                 using ArchiveFile archiveFile = new(SourcePath);
-                var specificFiles = archiveFile.Entries
-                    .Where(x => x.FileName.StartsWith(SpecificFolderName, StringComparison.OrdinalIgnoreCase))
-                    .ToHashSet();
 
                 archiveFile.Extract(entry =>
                 {
-                    if (specificFiles.Contains(entry))
+                    if (entry.FileName.StartsWith(SpecificFolderName, StringComparison.OrdinalIgnoreCase))
                     {
                         string targetFullPath = Path.Combine(DestinationPath, entry.FileName);
                         return targetFullPath;
@@ -64,56 +63,44 @@ namespace WUIntegrate
                     {
                         ExceptionFactory<ArgumentNullException>("URL to be downloaded was null.");
                     }
-                    if (Path.Exists(DestinationPath))
-                    {
-                        Logger.Warn($"File {DestinationPath} already exists.");
-                        return;
-                    }
 
                     Task.Run(async () =>
                     {
+                        Logger.Log($"Downloading file from {Url} to {DestinationPath}");
                         using HttpClient client = new();
                         using HttpResponseMessage response = await client.GetAsync(Url);
-
-                        response.EnsureSuccessStatusCode();
                         using Stream responseStream = await response.Content.ReadAsStreamAsync();
                         using Stream destinationStream = new FileStream(
                             DestinationPath,
                             FileMode.Create,
                             FileAccess.Write,
-                            FileShare.None
+                            FileShare.None,
+                            bufferSize: 81920,
+                            useAsync: true
                         );
+                        response.EnsureSuccessStatusCode();
 
-                        var totalBytes = response.Content.Headers.ContentLength!;
+                        await responseStream.CopyToAsync(destinationStream);
 
-                        var BufferSize = 81920;
-                        var buffer = new byte[BufferSize];
+                        Logger.Log($"Downloaded file from {Url} to {DestinationPath}");
+                        responseStream.Close();
 
-                        var totalBytesRead = 0;
-                        var bytesRead = 0;
-                        while ((bytesRead = await responseStream.ReadAsync(buffer)) > 0)
-                        {
-                            await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead));
-                            totalBytesRead += bytesRead;
-
-                            var progress = (int)((double)totalBytesRead / totalBytes * 100);
-
-                            ConsoleWriter.WriteProgress(100, progress, 100, "Downloading", ConsoleColor.Magenta);
-                        }
+                        destinationStream.Flush();
+                        destinationStream.Close();
                     })
                         .Wait();
+                    attempts = maxRetries;
                 }
                 catch (HttpRequestException ex)
                 {
                     attempts++;
+                    Logger.Warn($"Failed to download file: {ex.Message}");
                     if (attempts >= maxRetries)
                     {
                         ExceptionFactory<HttpRequestException>($"Failed to download file after {maxRetries} attempts: {ex.Message}");
                     }
                 }
             }
-            
-            GC.Collect();
         }
 
         public static bool IsCurrentUserAdmin()
